@@ -2,10 +2,10 @@
 
 ## Repository
 
-The local DAH client lives at:
+The local DAH client lives in the current repository root:
 
 ```text
-/Users/pvorman/home_projects/Dah
+$PWD
 ```
 
 Important files:
@@ -77,7 +77,7 @@ except DahRequestError as exc:
 
 ## CLI Quick Start
 
-Run commands from `/Users/pvorman/home_projects/Dah`.
+Run commands from the repository root.
 
 ```bash
 python3 main.py access
