@@ -1,0 +1,4 @@
+interface:
+  display_name: "DAH API Client"
+  short_description: "Work with DAH API via the local Python client"
+  default_prompt: "Use $dah-api-client to query the DAH API through the local Python client."
