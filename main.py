@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from dah_api import (
@@ -47,38 +48,7 @@ class DahCli:
         client = DahApiClient(self._build_config(args))
 
         try:
-            if args.command == "access":
-                response_data = client.get_access()
-            elif args.command == "publications-search":
-                response_data = client.search_publications(
-                    self._build_publications_request(args)
-                )
-            elif args.command == "bill-debt-analytics":
-                response_data = client.get_bill_debt_analytics(
-                    self._build_bill_debt_analytics_request(args)
-                )
-            elif args.command == "feedback-order-list":
-                response_data = client.list_feedback_orders(
-                    self._build_feedback_order_list_request(args)
-                )
-            elif args.command == "money-transaction-bank-list":
-                response_data = client.list_money_transaction_bank(
-                    self._build_money_transaction_bank_list_request(args)
-                )
-            elif args.command == "messenger-group-messages":
-                response_data = client.list_messenger_group_messages(
-                    self._build_messenger_group_messages_request(args)
-                )
-            elif args.command == "messenger-groups-page":
-                response_data = client.list_messenger_groups(
-                    self._build_messenger_groups_page_request(args)
-                )
-            else:
-                message_request = self._build_messenger_message_request(args, client)
-                if args.dry_run:
-                    response_data = message_request.to_payload()
-                else:
-                    response_data = client.send_messenger_message(message_request)
+            response_data = self._dispatch_command(args, client)
         except DahHttpError as exc:
             print(f"HTTP {exc.status_code} {exc.reason}", file=sys.stderr)
             if exc.body:
@@ -90,6 +60,47 @@ class DahCli:
 
         self._print_response(response_data, compact=args.compact)
         return 0
+
+    def _dispatch_command(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> Any:
+        handlers: dict[str, Callable[[], Any]] = {
+            "access": client.get_access,
+            "publications-search": lambda: client.search_publications(
+                self._build_publications_request(args)
+            ),
+            "bill-debt-analytics": lambda: client.get_bill_debt_analytics(
+                self._build_bill_debt_analytics_request(args)
+            ),
+            "feedback-order-list": lambda: client.list_feedback_orders(
+                self._build_feedback_order_list_request(args)
+            ),
+            "money-transaction-bank-list": lambda: client.list_money_transaction_bank(
+                self._build_money_transaction_bank_list_request(args)
+            ),
+            "messenger-group-messages": lambda: client.list_messenger_group_messages(
+                self._build_messenger_group_messages_request(args)
+            ),
+            "messenger-groups-page": lambda: client.list_messenger_groups(
+                self._build_messenger_groups_page_request(args)
+            ),
+            "messenger-send-message": lambda: self._send_or_preview_message(
+                args, client
+            ),
+        }
+        return handlers[args.command]()
+
+    def _send_or_preview_message(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> Any:
+        message_request = self._build_messenger_message_request(args, client)
+        if args.dry_run:
+            return message_request.to_payload()
+        return client.send_messenger_message(message_request)
 
     def _build_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
@@ -494,7 +505,24 @@ class DahCli:
         chat_name: str,
     ) -> str:
         expected_name = self._normalize_chat_name(chat_name)
+        matches = self._find_messenger_group_matches(client, expected_name)
+        return self._select_single_group_id(matches, chat_name)
+
+    def _find_messenger_group_matches(
+        self,
+        client: DahApiClient,
+        expected_name: str,
+    ) -> list[dict[str, Any]]:
         matches: list[dict[str, Any]] = []
+        for group in self._iter_messenger_groups(client):
+            if self._normalize_chat_name(group.get("name", "")) == expected_name:
+                matches.append(group)
+        return matches
+
+    def _iter_messenger_groups(
+        self,
+        client: DahApiClient,
+    ) -> Iterable[dict[str, Any]]:
         page = 0
         size = 50
 
@@ -502,21 +530,8 @@ class DahCli:
             response_data = client.list_messenger_groups(
                 MessengerGroupsPageRequest(page=page, size=size),
             )
-            if not isinstance(response_data, dict):
-                raise SystemExit(
-                    "Unable to resolve chat name: unexpected groups response."
-                )
-
-            groups = response_data.get("content", [])
-            if not isinstance(groups, list):
-                raise SystemExit("Unable to resolve chat name: missing groups content.")
-
-            for group in groups:
-                if not isinstance(group, dict):
-                    continue
-                if self._normalize_chat_name(group.get("name", "")) == expected_name:
-                    matches.append(group)
-
+            groups = self._extract_messenger_groups(response_data)
+            yield from groups
             if response_data.get("last") is True:
                 break
             total_pages = response_data.get("totalPages")
@@ -524,16 +539,44 @@ class DahCli:
             if isinstance(total_pages, int) and page >= total_pages:
                 break
 
+    def _extract_messenger_groups(self, response_data: Any) -> list[dict[str, Any]]:
+        if not isinstance(response_data, dict):
+            raise SystemExit("Unable to resolve chat name: unexpected groups response.")
+
+        groups = response_data.get("content", [])
+        if not isinstance(groups, list):
+            raise SystemExit("Unable to resolve chat name: missing groups content.")
+        return [group for group in groups if isinstance(group, dict)]
+
+    def _select_single_group_id(
+        self,
+        matches: list[dict[str, Any]],
+        chat_name: str,
+    ) -> str:
+        self._ensure_group_match_count(matches, chat_name)
+        return self._extract_group_id(matches[0], chat_name)
+
+    def _ensure_group_match_count(
+        self,
+        matches: list[dict[str, Any]],
+        chat_name: str,
+    ) -> None:
         if not matches:
             raise SystemExit(f"Chat not found by exact name: {chat_name}")
         if len(matches) > 1:
-            ids = ", ".join(str(match.get("id", "")) for match in matches)
+            ids = self._format_group_ids(matches)
             raise SystemExit(
                 f"Multiple chats found by exact name '{chat_name}'. "
                 f"Use --group-id. Matches: {ids}",
             )
 
-        group_id = matches[0].get("id")
+    @staticmethod
+    def _format_group_ids(matches: list[dict[str, Any]]) -> str:
+        return ", ".join(str(match.get("id", "")) for match in matches)
+
+    @staticmethod
+    def _extract_group_id(group: dict[str, Any], chat_name: str) -> str:
+        group_id = group.get("id")
         if not isinstance(group_id, str) or not group_id:
             raise SystemExit(f"Chat '{chat_name}' has no usable id.")
         return group_id
@@ -547,17 +590,26 @@ class DahCli:
         args: argparse.Namespace,
         default_payload: dict[str, Any],
     ) -> dict[str, Any]:
-        raw_body = args.body
-        if args.body_file:
-            try:
-                with open(args.body_file, "r", encoding="utf-8") as handle:
-                    raw_body = handle.read()
-            except OSError as exc:
-                raise SystemExit(f"Unable to read body file: {exc}") from exc
-
+        raw_body = self._load_raw_body(args)
         if raw_body is None:
             return default_payload
+        return self._parse_json_body(raw_body)
 
+    def _load_raw_body(self, args: argparse.Namespace) -> str | None:
+        if args.body_file:
+            return self._read_body_file(args.body_file)
+        return args.body
+
+    @staticmethod
+    def _read_body_file(path: str) -> str:
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                return handle.read()
+        except OSError as exc:
+            raise SystemExit(f"Unable to read body file: {exc}") from exc
+
+    @staticmethod
+    def _parse_json_body(raw_body: str) -> dict[str, Any]:
         try:
             return json.loads(raw_body)
         except json.JSONDecodeError as exc:

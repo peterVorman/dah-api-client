@@ -45,22 +45,46 @@ def load_env_file(
     except FileNotFoundError:
         return
 
-    for raw_line in lines:
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[len("export ") :].lstrip()
-        if "=" not in line:
-            continue
-
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = _strip_env_value(value.strip())
-        if not ENV_KEY_RE.match(key):
-            continue
+    for key, value in _iter_env_assignments(lines):
         if override or key not in os.environ:
             os.environ[key] = value
+
+
+def _iter_env_assignments(lines: list[str]) -> list[tuple[str, str]]:
+    assignments: list[tuple[str, str]] = []
+    for raw_line in lines:
+        assignment = _parse_env_assignment(raw_line)
+        if assignment is not None:
+            assignments.append(assignment)
+    return assignments
+
+
+def _parse_env_assignment(raw_line: str) -> tuple[str, str] | None:
+    line = _normalize_env_line(raw_line)
+    if "=" not in line:
+        return None
+
+    key, value = line.split("=", 1)
+    clean_key = _normalize_env_key(key)
+    if clean_key is None:
+        return None
+    return clean_key, _strip_env_value(value.strip())
+
+
+def _normalize_env_line(raw_line: str) -> str:
+    line = raw_line.strip()
+    if not line or line.startswith("#"):
+        return ""
+    if line.startswith("export "):
+        return line[len("export ") :].lstrip()
+    return line
+
+
+def _normalize_env_key(key: str) -> str | None:
+    clean_key = key.strip()
+    if ENV_KEY_RE.match(clean_key):
+        return clean_key
+    return None
 
 
 def _strip_env_value(value: str) -> str:
@@ -428,18 +452,28 @@ class DahApiClient:
         if not isinstance(access_data, dict):
             return []
 
-        association_ids: list[str] = []
+        return [
+            association_id
+            for item in DahApiClient._iter_access_items(access_data)
+            if (association_id := DahApiClient._extract_access_item_id(item))
+            is not None
+        ]
+
+    @staticmethod
+    def _iter_access_items(access_data: dict[str, Any]) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
         for access_key in ("managerAccess", "tenantAccess"):
             access_items = access_data.get(access_key, [])
-            if not isinstance(access_items, list):
-                continue
-            for item in access_items:
-                if not isinstance(item, dict):
-                    continue
-                association_id = item.get("id")
-                if isinstance(association_id, str) and association_id:
-                    association_ids.append(association_id)
-        return association_ids
+            if isinstance(access_items, list):
+                items.extend(item for item in access_items if isinstance(item, dict))
+        return items
+
+    @staticmethod
+    def _extract_access_item_id(item: dict[str, Any]) -> str | None:
+        association_id = item.get("id")
+        if isinstance(association_id, str) and association_id:
+            return association_id
+        return None
 
     def request_json(
         self,
