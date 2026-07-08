@@ -6,20 +6,18 @@ import gzip
 import json
 import os
 import re
-import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime
 from time import time
-from typing import Any, Callable
+from typing import Any
 
 
 DEFAULT_BASE_URL = "https://api.dah-online.com"
 DEFAULT_ORIGIN = "https://cabinet.dah-online.com"
 DEFAULT_REFERER = f"{DEFAULT_ORIGIN}/"
-DEFAULT_ASSOCIATION_ID = "251b4ef9-e0ed-49bd-80a0-3b6cbe322b05"
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -31,6 +29,10 @@ MISSING_BEARER_TOKEN_MESSAGE = (
 )
 MISSING_MESSENGER_GROUP_ID_MESSAGE = (
     "Missing messenger group id. Set DAH_MESSENGER_GROUP_ID or pass --group-id."
+)
+MISSING_ASSOCIATION_ID_MESSAGE = (
+    "Unable to resolve a single association id from get_access. "
+    "Set DAH_ASSOCIATION_ID or pass --association-id."
 )
 
 
@@ -69,11 +71,13 @@ def _strip_env_value(value: str) -> str:
     return value
 
 
-def default_publications_payload() -> dict[str, Any]:
-    return {
-        "associationId": DEFAULT_ASSOCIATION_ID,
-        "statuses": ["PUBLISHED"],
-    }
+def default_publications_payload(
+    association_id: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"statuses": ["PUBLISHED"]}
+    if association_id:
+        payload["associationId"] = association_id
+    return payload
 
 
 def current_report_date() -> str:
@@ -128,7 +132,6 @@ class DahApiConfig:
     referer: str = DEFAULT_REFERER
     user_agent: str = DEFAULT_USER_AGENT
     timeout: float = 30
-    insecure: bool = False
 
     def __post_init__(self) -> None:
         if not self.token:
@@ -165,13 +168,13 @@ class PublicationsSearchRequest:
 
 @dataclass(slots=True)
 class BillDebtAnalyticsRequest:
-    association_id: str = DEFAULT_ASSOCIATION_ID
+    association_id: str | None = None
     payload: dict[str, Any] = field(default_factory=default_bill_debt_analytics_payload)
 
 
 @dataclass(slots=True)
 class FeedbackOrderListRequest:
-    association_id: str = DEFAULT_ASSOCIATION_ID
+    association_id: str | None = None
     payload: dict[str, Any] = field(default_factory=default_feedback_order_list_payload)
 
 
@@ -223,7 +226,7 @@ class DahApiError(RuntimeError):
 
 
 class DahRequestError(DahApiError):
-    """Raised for network and TLS errors."""
+    """Raised for network and request-layer errors."""
 
 
 class DahHttpError(DahApiError):
@@ -235,13 +238,9 @@ class DahHttpError(DahApiError):
 
 
 class DahApiClient:
-    def __init__(
-        self,
-        config: DahApiConfig,
-        notifier: Callable[[str], None] | None = None,
-    ) -> None:
+    def __init__(self, config: DahApiConfig) -> None:
         self.config = config
-        self.notifier = notifier
+        self._default_association_id: str | None = None
 
     def get_access(self, *, tab_id: str | None = None) -> Any:
         return self.request_json(
@@ -257,11 +256,12 @@ class DahApiClient:
         tab_id: str | None = None,
     ) -> Any:
         search_request = request or PublicationsSearchRequest()
+        payload = self._payload_with_association_id(search_request.payload)
         return self.request_json(
             method="POST",
             path="/publications/search",
             query=search_request.query_params(),
-            payload=search_request.payload,
+            payload=payload,
             tab_id=tab_id,
         )
 
@@ -272,7 +272,10 @@ class DahApiClient:
         tab_id: str | None = None,
     ) -> Any:
         report_request = request or BillDebtAnalyticsRequest()
-        association_id = urllib.parse.quote(report_request.association_id, safe="")
+        association_id = urllib.parse.quote(
+            report_request.association_id or self.get_default_association_id(),
+            safe="",
+        )
         return self.request_json(
             method="POST",
             path=f"/accounting/v1/report/bill/{association_id}/debt/analytics",
@@ -287,7 +290,10 @@ class DahApiClient:
         tab_id: str | None = None,
     ) -> Any:
         list_request = request or FeedbackOrderListRequest()
-        association_id = urllib.parse.quote(list_request.association_id, safe="")
+        association_id = urllib.parse.quote(
+            list_request.association_id or self.get_default_association_id(),
+            safe="",
+        )
         return self.request_json(
             method="POST",
             path=f"/feedback/order/list/{association_id}",
@@ -337,6 +343,47 @@ class DahApiClient:
             payload=request.to_payload(),
             tab_id=tab_id,
         )
+
+    def get_default_association_id(self) -> str:
+        if self._default_association_id is None:
+            self._default_association_id = self._resolve_default_association_id(
+                self.get_access(),
+            )
+        return self._default_association_id
+
+    def _payload_with_association_id(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if payload.get("associationId"):
+            return payload
+        return {
+            **payload,
+            "associationId": self.get_default_association_id(),
+        }
+
+    @classmethod
+    def _resolve_default_association_id(cls, access_data: Any) -> str:
+        association_ids = cls._extract_access_association_ids(access_data)
+        unique_ids = sorted(set(association_ids))
+        if len(unique_ids) != 1:
+            raise DahRequestError(MISSING_ASSOCIATION_ID_MESSAGE)
+        return unique_ids[0]
+
+    @staticmethod
+    def _extract_access_association_ids(access_data: Any) -> list[str]:
+        if not isinstance(access_data, dict):
+            return []
+
+        association_ids: list[str] = []
+        for access_key in ("managerAccess", "tenantAccess"):
+            access_items = access_data.get(access_key, [])
+            if not isinstance(access_items, list):
+                continue
+            for item in access_items:
+                if not isinstance(item, dict):
+                    continue
+                association_id = item.get("id")
+                if isinstance(association_id, str) and association_id:
+                    association_ids.append(association_id)
+        return association_ids
 
     def request_json(
         self,
@@ -396,42 +443,22 @@ class DahApiClient:
         return headers
 
     def _perform_request(self, request: urllib.request.Request) -> Any:
-        verified_context = self._build_ssl_context()
         try:
-            return self._request_json(request, verified_context)
+            return self._request_json(request)
         except urllib.error.HTTPError as exc:
             raise self._http_error(exc) from exc
-        except (ssl.SSLCertVerificationError, urllib.error.URLError) as exc:
-            if not self._is_ssl_verification_error(exc):
-                raise DahRequestError(f"Request failed: {exc}") from exc
-            if self.config.insecure:
-                raise DahRequestError(
-                    "TLS verification failed even with --insecure enabled."
-                ) from exc
-            self._notify("TLS verification failed; retrying once without certificate checks.")
-            try:
-                return self._request_json(request, ssl._create_unverified_context())
-            except urllib.error.HTTPError as retry_exc:
-                raise self._http_error(retry_exc) from retry_exc
-            except (ssl.SSLCertVerificationError, urllib.error.URLError) as retry_exc:
-                raise DahRequestError(f"Request failed: {retry_exc}") from retry_exc
+        except urllib.error.URLError as exc:
+            raise DahRequestError(f"Request failed: {exc}") from exc
 
     def _request_json(
         self,
         request: urllib.request.Request,
-        context: ssl.SSLContext,
     ) -> Any:
         with urllib.request.urlopen(
             request,
             timeout=self.config.timeout,
-            context=context,
         ) as response:
             return json.loads(self._decode_response(response))
-
-    def _build_ssl_context(self) -> ssl.SSLContext:
-        if self.config.insecure:
-            return ssl._create_unverified_context()
-        return ssl.create_default_context()
 
     def _decode_response(self, response: Any) -> str:
         data = response.read()
@@ -441,15 +468,3 @@ class DahApiClient:
 
     def _http_error(self, exc: urllib.error.HTTPError) -> DahHttpError:
         return DahHttpError(exc.code, exc.reason, self._decode_response(exc))
-
-    @staticmethod
-    def _is_ssl_verification_error(exc: BaseException) -> bool:
-        if isinstance(exc, ssl.SSLCertVerificationError):
-            return True
-        if isinstance(exc, urllib.error.URLError):
-            return isinstance(exc.reason, ssl.SSLCertVerificationError)
-        return False
-
-    def _notify(self, message: str) -> None:
-        if self.notifier is not None:
-            self.notifier(message)

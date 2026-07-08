@@ -7,7 +7,7 @@ description: Work with the DAH cabinet API through the local Python client in th
 
 ## Core Rule
 
-Use the existing client code in the repository root as the integration boundary. Do not reimplement authentication, headers, TLS fallback, JSON decoding, or endpoint URLs unless the task is explicitly to change that client.
+Use the existing client code in the repository root as the integration boundary. Do not reimplement authentication, headers, JSON decoding, or endpoint URLs unless the task is explicitly to change that client.
 
 ## Workflow
 
@@ -36,6 +36,4 @@ If a live call returns `401 Unauthorized`, treat it as an authentication/token f
 Handle these exceptions from `dah_api.py` explicitly in scripts and examples:
 
 - `DahHttpError`: API responded with a non-2xx HTTP status; include status and reason, but avoid dumping sensitive bodies unless needed.
-- `DahRequestError`: network, TLS, or request-layer failure.
-
-When TLS verification fails, the client already retries once without certificate checks unless `insecure=True`; do not add a second custom retry layer without a reason.
+- `DahRequestError`: network or request-layer failure.

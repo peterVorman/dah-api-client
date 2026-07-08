@@ -21,6 +21,7 @@ Supported environment variables:
 
 - `DAH_BASE_URL`: API base URL, default `https://api.dah-online.com`.
 - `DAH_BEARER_TOKEN`: bearer token. Required by default for live API calls.
+- `DAH_ASSOCIATION_ID`: optional association id override. When absent, scoped endpoints resolve the single available id from `get_access`.
 - `DAH_TAB_ID`: optional `X-DAH-TabId` header.
 - `DAH_ORIGIN`: Origin header, default `https://cabinet.dah-online.com`.
 - `DAH_REFERER`: Referer header, default `https://cabinet.dah-online.com/`.
@@ -82,7 +83,7 @@ Run commands from the repository root.
 ```bash
 python3 main.py access
 python3 main.py publications-search --page 0 --size 5
-python3 main.py publications-search --body '{"associationId":"251b4ef9-e0ed-49bd-80a0-3b6cbe322b05","statuses":["PUBLISHED"]}'
+python3 main.py publications-search --body '{"associationId":"<association id>","statuses":["PUBLISHED"]}'
 python3 main.py publications-search --body-file request.json --compact
 python3 main.py bill-debt-analytics --date 2026-07-08T15:10 --debt-filter-accruals 1
 python3 main.py feedback-order-list
@@ -96,7 +97,6 @@ Common flags:
 - `--token`: override the bearer token for one call.
 - `--tab-id`: send `X-DAH-TabId`.
 - `--timeout`: set HTTP timeout seconds.
-- `--insecure`: disable TLS verification from the start; avoid unless needed.
 - `--compact`: print compact JSON.
 
 ## Current Client Surface
@@ -160,10 +160,11 @@ Default publications payload:
 
 ```json
 {
-  "associationId": "251b4ef9-e0ed-49bd-80a0-3b6cbe322b05",
   "statuses": ["PUBLISHED"]
 }
 ```
+
+When `associationId` is missing from the publications payload, the client resolves it from `get_access` if exactly one unique association id is available.
 
 Default bill debt analytics payload:
 

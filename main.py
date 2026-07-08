@@ -10,7 +10,6 @@ import sys
 from typing import Any
 
 from dah_api import (
-    DEFAULT_ASSOCIATION_ID,
     DEFAULT_BASE_URL,
     DEFAULT_ORIGIN,
     DEFAULT_REFERER,
@@ -43,7 +42,7 @@ class DahCli:
 
     def run(self, argv: list[str] | None = None) -> int:
         args = self.parser.parse_args(argv)
-        client = DahApiClient(self._build_config(args), notifier=self._notify)
+        client = DahApiClient(self._build_config(args))
 
         try:
             if args.command == "access":
@@ -127,11 +126,6 @@ class DahCli:
             help="HTTP timeout in seconds.",
         )
         parser.add_argument(
-            "--insecure",
-            action="store_true",
-            help="Disable TLS certificate verification.",
-        )
-        parser.add_argument(
             "--compact",
             action="store_true",
             help="Print compact JSON instead of pretty JSON.",
@@ -179,8 +173,11 @@ class DahCli:
         )
         debt_analytics_parser.add_argument(
             "--association-id",
-            default=os.getenv("DAH_ASSOCIATION_ID", DEFAULT_ASSOCIATION_ID),
-            help="Association id path parameter. Defaults to DAH_ASSOCIATION_ID.",
+            default=os.getenv("DAH_ASSOCIATION_ID"),
+            help=(
+                "Association id path parameter. Defaults to DAH_ASSOCIATION_ID "
+                "or a single id resolved from get_access."
+            ),
         )
         debt_analytics_parser.add_argument(
             "--date",
@@ -209,8 +206,11 @@ class DahCli:
         )
         feedback_order_parser.add_argument(
             "--association-id",
-            default=os.getenv("DAH_ASSOCIATION_ID", DEFAULT_ASSOCIATION_ID),
-            help="Association id path parameter. Defaults to DAH_ASSOCIATION_ID.",
+            default=os.getenv("DAH_ASSOCIATION_ID"),
+            help=(
+                "Association id path parameter. Defaults to DAH_ASSOCIATION_ID "
+                "or a single id resolved from get_access."
+            ),
         )
         feedback_body_group = feedback_order_parser.add_mutually_exclusive_group()
         feedback_body_group.add_argument(
@@ -330,7 +330,6 @@ class DahCli:
             referer=args.referer,
             user_agent=args.user_agent,
             timeout=args.timeout,
-            insecure=args.insecure,
         )
 
     def _build_publications_request(
@@ -340,7 +339,10 @@ class DahCli:
         return PublicationsSearchRequest(
             page=args.page,
             size=args.size,
-            payload=self._load_payload(args, default_publications_payload()),
+            payload=self._load_payload(
+                args,
+                default_publications_payload(os.getenv("DAH_ASSOCIATION_ID")),
+            ),
         )
 
     def _build_bill_debt_analytics_request(
@@ -488,11 +490,6 @@ class DahCli:
             print(json.dumps(data, ensure_ascii=False))
         else:
             print(json.dumps(data, ensure_ascii=False, indent=2))
-
-    @staticmethod
-    def _notify(message: str) -> None:
-        print(message, file=sys.stderr)
-
 
 def main() -> int:
     return DahCli().run()
