@@ -25,9 +25,11 @@ from dah_api import (
     MessengerGroupMessagesRequest,
     MessengerGroupsPageRequest,
     MessengerMessageRequest,
+    MoneyTransactionBankListRequest,
     PublicationsSearchRequest,
     default_bill_debt_analytics_payload,
     default_feedback_order_list_payload,
+    default_money_transaction_bank_list_payload,
     default_messenger_group_messages_payload,
     default_messenger_groups_page_payload,
     default_publications_payload,
@@ -58,6 +60,10 @@ class DahCli:
             elif args.command == "feedback-order-list":
                 response_data = client.list_feedback_orders(
                     self._build_feedback_order_list_request(args)
+                )
+            elif args.command == "money-transaction-bank-list":
+                response_data = client.list_money_transaction_bank(
+                    self._build_money_transaction_bank_list_request(args)
                 )
             elif args.command == "messenger-group-messages":
                 response_data = client.list_messenger_group_messages(
@@ -93,11 +99,6 @@ class DahCli:
             "--base-url",
             default=os.getenv("DAH_BASE_URL", DEFAULT_BASE_URL),
             help="API base URL.",
-        )
-        parser.add_argument(
-            "--token",
-            default=os.getenv("DAH_BEARER_TOKEN"),
-            help="Bearer token. Defaults to DAH_BEARER_TOKEN when set.",
         )
         parser.add_argument(
             "--tab-id",
@@ -222,6 +223,52 @@ class DahCli:
             help="Path to a JSON file containing the request body.",
         )
 
+        money_transaction_parser = subparsers.add_parser(
+            "money-transaction-bank-list",
+            help="POST /accounting/v1/money/transaction/{associationId}/list/bank",
+            description="Fetch bank money transactions.",
+        )
+        money_transaction_parser.add_argument(
+            "--association-id",
+            default=os.getenv("DAH_ASSOCIATION_ID"),
+            help=(
+                "Association id path parameter. Defaults to DAH_ASSOCIATION_ID "
+                "or a single id resolved from get_access."
+            ),
+        )
+        money_transaction_parser.add_argument(
+            "--page",
+            type=int,
+            default=0,
+            help="0-based page number.",
+        )
+        money_transaction_parser.add_argument(
+            "--size",
+            type=int,
+            default=50,
+            help="Page size.",
+        )
+        money_transaction_parser.add_argument(
+            "--direction",
+            default="EXPENSE",
+            help="Transaction direction in the default request body.",
+        )
+        money_transaction_parser.add_argument(
+            "--from-date",
+            help="Start date/time for the default request body, for example 2026-07-01T00:00:00.",
+        )
+        money_transaction_body_group = (
+            money_transaction_parser.add_mutually_exclusive_group()
+        )
+        money_transaction_body_group.add_argument(
+            "--body",
+            help="Inline JSON body to send to the endpoint.",
+        )
+        money_transaction_body_group.add_argument(
+            "--body-file",
+            help="Path to a JSON file containing the request body.",
+        )
+
         messenger_parser = subparsers.add_parser(
             "messenger-group-messages",
             help="POST /messenger/groups/{groupId}/messages",
@@ -320,10 +367,11 @@ class DahCli:
         return parser
 
     def _build_config(self, args: argparse.Namespace) -> DahApiConfig:
-        if not args.token:
+        token = os.getenv("DAH_BEARER_TOKEN")
+        if not token:
             raise SystemExit(MISSING_BEARER_TOKEN_MESSAGE)
         return DahApiConfig(
-            token=args.token,
+            token=token,
             base_url=args.base_url,
             tab_id=args.tab_id,
             origin=args.origin,
@@ -367,6 +415,23 @@ class DahCli:
         return FeedbackOrderListRequest(
             association_id=args.association_id,
             payload=self._load_payload(args, default_feedback_order_list_payload()),
+        )
+
+    def _build_money_transaction_bank_list_request(
+        self,
+        args: argparse.Namespace,
+    ) -> MoneyTransactionBankListRequest:
+        return MoneyTransactionBankListRequest(
+            association_id=args.association_id,
+            page=args.page,
+            size=args.size,
+            payload=self._load_payload(
+                args,
+                default_money_transaction_bank_list_payload(
+                    direction=args.direction,
+                    from_date=args.from_date,
+                ),
+            ),
         )
 
     def _build_messenger_group_messages_request(

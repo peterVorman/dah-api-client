@@ -42,6 +42,7 @@ from dah_api import (
     DahRequestError,
     BillDebtAnalyticsRequest,
     FeedbackOrderListRequest,
+    MoneyTransactionBankListRequest,
     MessengerGroupMessagesRequest,
     MessengerGroupsPageRequest,
     MessengerMessageRequest,
@@ -60,6 +61,9 @@ try:
         )
     )
     feedback_orders = client.list_feedback_orders(FeedbackOrderListRequest())
+    bank_transactions = client.list_money_transaction_bank(
+        MoneyTransactionBankListRequest(page=0, size=50)
+    )
     groups = client.list_messenger_groups(MessengerGroupsPageRequest(page=0, size=50))
     messages = client.list_messenger_group_messages(
         MessengerGroupMessagesRequest(group_id="<messenger group id>", page=0, size=50)
@@ -87,6 +91,7 @@ python3 main.py publications-search --body '{"associationId":"<association id>",
 python3 main.py publications-search --body-file request.json --compact
 python3 main.py bill-debt-analytics --date 2026-07-08T15:10 --debt-filter-accruals 1
 python3 main.py feedback-order-list
+python3 main.py money-transaction-bank-list --direction EXPENSE --from-date 2026-07-01T00:00:00 --page 0 --size 50
 python3 main.py messenger-groups-page --page 0 --size 50
 python3 main.py messenger-group-messages --group-id '<messenger group id>' --page 0 --size 50
 python3 main.py messenger-send-message --chat-name '1 підʼїзд' --dry-run 'Ліфт відновив роботу'
@@ -94,7 +99,6 @@ python3 main.py messenger-send-message --chat-name '1 підʼїзд' --dry-run 
 
 Common flags:
 
-- `--token`: override the bearer token for one call.
 - `--tab-id`: send `X-DAH-TabId`.
 - `--timeout`: set HTTP timeout seconds.
 - `--compact`: print compact JSON.
@@ -123,6 +127,12 @@ POST /accounting/v1/report/bill/<associationId>/debt/analytics
 
 ```text
 POST /feedback/order/list/<associationId>
+```
+
+`DahApiClient.list_money_transaction_bank()` calls:
+
+```text
+POST /accounting/v1/money/transaction/<associationId>/list/bank?page=<page>&size=<size>
 ```
 
 `DahApiClient.list_messenger_group_messages()` calls:
@@ -184,6 +194,15 @@ Default bill debt analytics payload:
   "flowItemCategoriesExclude": false,
   "date": "<current local minute or --date>",
   "accrualTypes": []
+}
+```
+
+Default money transaction bank list payload:
+
+```json
+{
+  "direction": "EXPENSE",
+  "from": "<--from-date, optional>"
 }
 ```
 

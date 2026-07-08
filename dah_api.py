@@ -25,7 +25,7 @@ DEFAULT_USER_AGENT = (
 )
 ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 MISSING_BEARER_TOKEN_MESSAGE = (
-    "Missing bearer token. Set DAH_BEARER_TOKEN or pass --token."
+    "Missing bearer token. Set DAH_BEARER_TOKEN."
 )
 MISSING_MESSENGER_GROUP_ID_MESSAGE = (
     "Missing messenger group id. Set DAH_MESSENGER_GROUP_ID or pass --group-id."
@@ -115,6 +115,19 @@ def default_feedback_order_list_payload() -> dict[str, Any]:
     return {}
 
 
+def default_money_transaction_bank_list_payload(
+    *,
+    direction: str = "EXPENSE",
+    from_date: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "direction": direction,
+    }
+    if from_date:
+        payload["from"] = from_date
+    return payload
+
+
 def default_messenger_group_messages_payload() -> dict[str, Any]:
     return {}
 
@@ -176,6 +189,22 @@ class BillDebtAnalyticsRequest:
 class FeedbackOrderListRequest:
     association_id: str | None = None
     payload: dict[str, Any] = field(default_factory=default_feedback_order_list_payload)
+
+
+@dataclass(slots=True)
+class MoneyTransactionBankListRequest:
+    association_id: str | None = None
+    page: int = 0
+    size: int = 50
+    payload: dict[str, Any] = field(
+        default_factory=default_money_transaction_bank_list_payload
+    )
+
+    def query_params(self) -> dict[str, int]:
+        return {
+            "page": self.page,
+            "size": self.size,
+        }
 
 
 @dataclass(slots=True)
@@ -297,6 +326,25 @@ class DahApiClient:
         return self.request_json(
             method="POST",
             path=f"/feedback/order/list/{association_id}",
+            payload=list_request.payload,
+            tab_id=tab_id,
+        )
+
+    def list_money_transaction_bank(
+        self,
+        request: MoneyTransactionBankListRequest | None = None,
+        *,
+        tab_id: str | None = None,
+    ) -> Any:
+        list_request = request or MoneyTransactionBankListRequest()
+        association_id = urllib.parse.quote(
+            list_request.association_id or self.get_default_association_id(),
+            safe="",
+        )
+        return self.request_json(
+            method="POST",
+            path=f"/accounting/v1/money/transaction/{association_id}/list/bank",
+            query=list_request.query_params(),
             payload=list_request.payload,
             tab_id=tab_id,
         )
