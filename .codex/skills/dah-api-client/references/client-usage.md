@@ -20,15 +20,16 @@ Use `DahApiConfig.from_env()` for scripts that should respect the user's shell e
 Supported environment variables:
 
 - `DAH_BASE_URL`: API base URL, default `https://api.dah-online.com`.
-- `DAH_BEARER_TOKEN`: bearer token. Prefer this over the built-in fallback token.
+- `DAH_BEARER_TOKEN`: bearer token. Required by default for live API calls.
 - `DAH_TAB_ID`: optional `X-DAH-TabId` header.
 - `DAH_ORIGIN`: Origin header, default `https://cabinet.dah-online.com`.
 - `DAH_REFERER`: Referer header, default `https://cabinet.dah-online.com/`.
 - `DAH_USER_AGENT`: User-Agent header.
+- `DAH_MESSENGER_GROUP_ID`: optional default group id for `messenger-group-messages`.
 
 Never print the bearer token. Avoid committing newly captured tokens.
 
-If a live request returns `401 Unauthorized`, first assume the active token is expired or missing. Use a fresh `DAH_BEARER_TOKEN` from the environment rather than editing `DEFAULT_BEARER_TOKEN`, unless the user explicitly wants the fallback changed.
+If a live request returns `401 Unauthorized`, first assume the active token is expired or missing. Use a fresh `DAH_BEARER_TOKEN` from the environment instead of editing code or hard-coding tokens.
 
 ## Python Quick Start
 
@@ -60,7 +61,7 @@ try:
     feedback_orders = client.list_feedback_orders(FeedbackOrderListRequest())
     groups = client.list_messenger_groups(MessengerGroupsPageRequest(page=0, size=50))
     messages = client.list_messenger_group_messages(
-        MessengerGroupMessagesRequest(page=0, size=50)
+        MessengerGroupMessagesRequest(group_id="<messenger group id>", page=0, size=50)
     )
     sent_message = client.send_messenger_message(
         MessengerMessageRequest(
@@ -86,7 +87,7 @@ python3 main.py publications-search --body-file request.json --compact
 python3 main.py bill-debt-analytics --date 2026-07-08T15:10 --debt-filter-accruals 1
 python3 main.py feedback-order-list
 python3 main.py messenger-groups-page --page 0 --size 50
-python3 main.py messenger-group-messages --page 0 --size 50
+python3 main.py messenger-group-messages --group-id '<messenger group id>' --page 0 --size 50
 python3 main.py messenger-send-message --chat-name '1 підʼїзд' --dry-run 'Ліфт відновив роботу'
 ```
 

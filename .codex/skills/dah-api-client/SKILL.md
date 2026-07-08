@@ -15,7 +15,7 @@ Use the existing client code in `/Users/pvorman/home_projects/Dah` as the integr
 2. Inspect `dah_api.py` and `main.py` before changing behavior; preserve their public interfaces unless the user asks for a broader refactor.
 3. Prefer `DahApiClient` for Python work and `main.py` for quick command-line queries.
 4. Read `references/client-usage.md` when you need exact imports, CLI examples, endpoint details, or extension patterns.
-5. Keep tokens out of final answers, logs, fixtures, screenshots, and committed test data. Prefer `DAH_BEARER_TOKEN` from the environment.
+5. Keep tokens out of final answers, logs, fixtures, screenshots, and committed test data. Require `DAH_BEARER_TOKEN` from the environment or an explicit `--token` value.
 
 ## Validation
 
@@ -29,7 +29,7 @@ For live API calls, warn the user that the request will contact `api.dah-online.
 
 For write endpoints, such as sending messenger messages, prefer `--dry-run` first and only send when the user explicitly asks to perform the write.
 
-If a live call returns `401 Unauthorized`, treat it as an authentication/token freshness issue first. Ask for or use a fresh `DAH_BEARER_TOKEN`; do not replace the client or hard-code a new token unless the user explicitly asks.
+If a live call returns `401 Unauthorized`, treat it as an authentication/token freshness issue first. Ask for or use a fresh `DAH_BEARER_TOKEN`; do not hard-code tokens.
 
 ## Error Handling
 

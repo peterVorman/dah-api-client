@@ -12,11 +12,11 @@ from typing import Any
 from dah_api import (
     DEFAULT_ASSOCIATION_ID,
     DEFAULT_BASE_URL,
-    DEFAULT_BEARER_TOKEN,
-    DEFAULT_MESSENGER_GROUP_ID,
     DEFAULT_ORIGIN,
     DEFAULT_REFERER,
     DEFAULT_USER_AGENT,
+    MISSING_BEARER_TOKEN_MESSAGE,
+    MISSING_MESSENGER_GROUP_ID_MESSAGE,
     BillDebtAnalyticsRequest,
     DahApiClient,
     DahApiConfig,
@@ -97,8 +97,8 @@ class DahCli:
         )
         parser.add_argument(
             "--token",
-            default=os.getenv("DAH_BEARER_TOKEN", DEFAULT_BEARER_TOKEN),
-            help="Bearer token. Defaults to DAH_BEARER_TOKEN or the built-in web token.",
+            default=os.getenv("DAH_BEARER_TOKEN"),
+            help="Bearer token. Defaults to DAH_BEARER_TOKEN when set.",
         )
         parser.add_argument(
             "--tab-id",
@@ -229,7 +229,7 @@ class DahCli:
         )
         messenger_parser.add_argument(
             "--group-id",
-            default=os.getenv("DAH_MESSENGER_GROUP_ID", DEFAULT_MESSENGER_GROUP_ID),
+            default=os.getenv("DAH_MESSENGER_GROUP_ID"),
             help="Messenger group id path parameter. Defaults to DAH_MESSENGER_GROUP_ID.",
         )
         messenger_parser.add_argument(
@@ -320,9 +320,11 @@ class DahCli:
         return parser
 
     def _build_config(self, args: argparse.Namespace) -> DahApiConfig:
+        if not args.token:
+            raise SystemExit(MISSING_BEARER_TOKEN_MESSAGE)
         return DahApiConfig(
-            base_url=args.base_url,
             token=args.token,
+            base_url=args.base_url,
             tab_id=args.tab_id,
             origin=args.origin,
             referer=args.referer,
@@ -369,6 +371,8 @@ class DahCli:
         self,
         args: argparse.Namespace,
     ) -> MessengerGroupMessagesRequest:
+        if not args.group_id:
+            raise SystemExit(MISSING_MESSENGER_GROUP_ID_MESSAGE)
         return MessengerGroupMessagesRequest(
             group_id=args.group_id,
             page=args.page,

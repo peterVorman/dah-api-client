@@ -20,29 +20,18 @@ DEFAULT_BASE_URL = "https://api.dah-online.com"
 DEFAULT_ORIGIN = "https://cabinet.dah-online.com"
 DEFAULT_REFERER = f"{DEFAULT_ORIGIN}/"
 DEFAULT_ASSOCIATION_ID = "251b4ef9-e0ed-49bd-80a0-3b6cbe322b05"
-DEFAULT_MESSENGER_GROUP_ID = "65664e74-cf14-4076-b793-931f1921ae8e"
-DEFAULT_BEARER_TOKEN = (
-    "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9."
-    "eyJ1c2VyX25hbWUiOiIrMzgwOTk0NjA0MTY0Iiwic2Vzc2lvbiI6eyJzZXNzaW9uVHMi"
-    "OjE3NzU1MDg4ODI2NDksInVzZXJJZCI6ImRjYzBiY2I5LTFmZjUtNGU2Yy05ZTlmLTBk"
-    "ZjA4Mzc0ZDBjNSIsImRldmljZUlkIjoiMjgyODA4ZGUtNzcxMS00Njc3LWFlYjAtY2Iz"
-    "ZjhhMGQ0M2Y4IiwiY2xpZW50VHlwZSI6IldFQiIsImNsaWVudElkIjoiREFIX0NMSUVO"
-    "VF9XRUIifSwicGVybWlzc2lvbnMiOnsiMDAwMDAwMDAwMDAwMDAwMEUwRkZGRkZGRkZG"
-    "RkZGRkZGRkZGRkZGRjAzIjpbeyJ0IjoiMjUxYjRlZjktZTBlZC00OWJkLTgwYTAtM2I2"
-    "Y2JlMzIyYjA1In1dfSwic2NvcGUiOlsiVVNFUiJdLCJwZXJtQyI6e30sImV4cCI6MTc3"
-    "NTUxMjQ4MiwiY2xpZW50X2lkIjoiREFIX0NMSUVOVF9XRUIifQ."
-    "LPniuR_qGCHGuBN4Xx8XELJGuH_0L6fqMBlru_iletX3tmlJhDXN9nobBCMjUa78yHLO1"
-    "dKJkRixz3xWrtFRS9Z7Nve-bShzmDvAXYTzRrwdMP-PNkl5mNZjlDYspnB04MkYPM56nfu"
-    "lW3sImtnMbChztuqEmmJirCg48nA47J1NSI0m-P-YF-LY05nKp_FY_jFTpz4AqcFVGEZu"
-    "U_mTi6Ow94phTYv-KGiHq0NxNaNPFrbXacwWH__u_z97yCFkDZwI1LLOPfPB52szprdoG"
-    "KpAuSuKS5hgePa6IO65Y4NglM1eWkCWLuUPv-l7s4GHi9F95YjwvK_fNo008RRyXg"
-)
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/146.0.0.0 Safari/537.36"
 )
 ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+MISSING_BEARER_TOKEN_MESSAGE = (
+    "Missing bearer token. Set DAH_BEARER_TOKEN or pass --token."
+)
+MISSING_MESSENGER_GROUP_ID_MESSAGE = (
+    "Missing messenger group id. Set DAH_MESSENGER_GROUP_ID or pass --group-id."
+)
 
 
 def load_env_file(
@@ -132,8 +121,8 @@ def default_messenger_groups_page_payload() -> dict[str, Any]:
 
 @dataclass(slots=True)
 class DahApiConfig:
+    token: str
     base_url: str = DEFAULT_BASE_URL
-    token: str = DEFAULT_BEARER_TOKEN
     tab_id: str | None = None
     origin: str = DEFAULT_ORIGIN
     referer: str = DEFAULT_REFERER
@@ -141,12 +130,19 @@ class DahApiConfig:
     timeout: float = 30
     insecure: bool = False
 
+    def __post_init__(self) -> None:
+        if not self.token:
+            raise ValueError(MISSING_BEARER_TOKEN_MESSAGE)
+
     @classmethod
     def from_env(cls) -> "DahApiConfig":
         load_env_file()
+        token = os.getenv("DAH_BEARER_TOKEN")
+        if not token:
+            raise ValueError(MISSING_BEARER_TOKEN_MESSAGE)
         return cls(
+            token=token,
             base_url=os.getenv("DAH_BASE_URL", DEFAULT_BASE_URL),
-            token=os.getenv("DAH_BEARER_TOKEN", DEFAULT_BEARER_TOKEN),
             tab_id=os.getenv("DAH_TAB_ID"),
             origin=os.getenv("DAH_ORIGIN", DEFAULT_ORIGIN),
             referer=os.getenv("DAH_REFERER", DEFAULT_REFERER),
@@ -181,7 +177,7 @@ class FeedbackOrderListRequest:
 
 @dataclass(slots=True)
 class MessengerGroupMessagesRequest:
-    group_id: str = DEFAULT_MESSENGER_GROUP_ID
+    group_id: str
     page: int = 0
     size: int = 50
     payload: dict[str, Any] = field(default_factory=default_messenger_group_messages_payload)
@@ -301,17 +297,16 @@ class DahApiClient:
 
     def list_messenger_group_messages(
         self,
-        request: MessengerGroupMessagesRequest | None = None,
+        request: MessengerGroupMessagesRequest,
         *,
         tab_id: str | None = None,
     ) -> Any:
-        messages_request = request or MessengerGroupMessagesRequest()
-        group_id = urllib.parse.quote(messages_request.group_id, safe="")
+        group_id = urllib.parse.quote(request.group_id, safe="")
         return self.request_json(
             method="POST",
             path=f"/messenger/groups/{group_id}/messages",
-            query=messages_request.query_params(),
-            payload=messages_request.payload,
+            query=request.query_params(),
+            payload=request.payload,
             tab_id=tab_id,
         )
 
