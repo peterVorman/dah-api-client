@@ -14,8 +14,8 @@ from datetime import datetime
 from time import time
 from typing import Any
 
-
 DEFAULT_BASE_URL = "https://api.dah-online.com"
+ALLOWED_API_HOST = "api.dah-online.com"
 DEFAULT_ORIGIN = "https://cabinet.dah-online.com"
 DEFAULT_REFERER = f"{DEFAULT_ORIGIN}/"
 DEFAULT_USER_AGENT = (
@@ -24,9 +24,7 @@ DEFAULT_USER_AGENT = (
     "Chrome/146.0.0.0 Safari/537.36"
 )
 ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-MISSING_BEARER_TOKEN_MESSAGE = (
-    "Missing bearer token. Set DAH_BEARER_TOKEN."
-)
+MISSING_BEARER_TOKEN_MESSAGE = "Missing bearer token. Set DAH_BEARER_TOKEN."  # nosec B105
 MISSING_MESSENGER_GROUP_ID_MESSAGE = (
     "Missing messenger group id. Set DAH_MESSENGER_GROUP_ID or pass --group-id."
 )
@@ -149,6 +147,12 @@ class DahApiConfig:
     def __post_init__(self) -> None:
         if not self.token:
             raise ValueError(MISSING_BEARER_TOKEN_MESSAGE)
+        self._validate_base_url()
+
+    def _validate_base_url(self) -> None:
+        parsed_url = urllib.parse.urlparse(self.base_url)
+        if parsed_url.scheme != "https" or parsed_url.hostname != ALLOWED_API_HOST:
+            raise ValueError(f"DAH base URL must be https://{ALLOWED_API_HOST}.")
 
     @classmethod
     def from_env(cls) -> "DahApiConfig":
@@ -212,7 +216,9 @@ class MessengerGroupMessagesRequest:
     group_id: str
     page: int = 0
     size: int = 50
-    payload: dict[str, Any] = field(default_factory=default_messenger_group_messages_payload)
+    payload: dict[str, Any] = field(
+        default_factory=default_messenger_group_messages_payload
+    )
 
     def query_params(self) -> dict[str, int]:
         return {
@@ -225,7 +231,9 @@ class MessengerGroupMessagesRequest:
 class MessengerGroupsPageRequest:
     page: int = 0
     size: int = 50
-    payload: dict[str, Any] = field(default_factory=default_messenger_groups_page_payload)
+    payload: dict[str, Any] = field(
+        default_factory=default_messenger_groups_page_payload
+    )
 
     def query_params(self) -> dict[str, int]:
         return {
@@ -471,11 +479,15 @@ class DahApiClient:
         return urllib.request.Request(
             url=url,
             data=data,
-            headers=self._build_headers(has_json_body=payload is not None, tab_id=tab_id),
+            headers=self._build_headers(
+                has_json_body=payload is not None, tab_id=tab_id
+            ),
             method=method,
         )
 
-    def _build_headers(self, *, has_json_body: bool, tab_id: str | None) -> dict[str, str]:
+    def _build_headers(
+        self, *, has_json_body: bool, tab_id: str | None
+    ) -> dict[str, str]:
         headers = {
             "Accept": "application/json, text/plain, */*",
             "Authorization": f"Bearer {self.config.token}",
@@ -502,7 +514,7 @@ class DahApiClient:
         self,
         request: urllib.request.Request,
     ) -> Any:
-        with urllib.request.urlopen(
+        with urllib.request.urlopen(  # nosec B310
             request,
             timeout=self.config.timeout,
         ) as response:

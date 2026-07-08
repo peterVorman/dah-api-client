@@ -29,9 +29,9 @@ from dah_api import (
     PublicationsSearchRequest,
     default_bill_debt_analytics_payload,
     default_feedback_order_list_payload,
-    default_money_transaction_bank_list_payload,
     default_messenger_group_messages_payload,
     default_messenger_groups_page_payload,
+    default_money_transaction_bank_list_payload,
     default_publications_payload,
     load_env_file,
 )
@@ -182,7 +182,9 @@ class DahCli:
         )
         debt_analytics_parser.add_argument(
             "--date",
-            help="Report date in YYYY-MM-DDTHH:MM. Defaults to the current local minute.",
+            help=(
+                "Report date in YYYY-MM-DDTHH:MM. Defaults to the current local minute."
+            ),
         )
         debt_analytics_parser.add_argument(
             "--debt-filter-accruals",
@@ -255,7 +257,10 @@ class DahCli:
         )
         money_transaction_parser.add_argument(
             "--from-date",
-            help="Start date/time for the default request body, for example 2026-07-01T00:00:00.",
+            help=(
+                "Start date/time for the default request body, "
+                "for example 2026-07-01T00:00:00."
+            ),
         )
         money_transaction_body_group = (
             money_transaction_parser.add_mutually_exclusive_group()
@@ -277,7 +282,9 @@ class DahCli:
         messenger_parser.add_argument(
             "--group-id",
             default=os.getenv("DAH_MESSENGER_GROUP_ID"),
-            help="Messenger group id path parameter. Defaults to DAH_MESSENGER_GROUP_ID.",
+            help=(
+                "Messenger group id path parameter. Defaults to DAH_MESSENGER_GROUP_ID."
+            ),
         )
         messenger_parser.add_argument(
             "--page",
@@ -318,7 +325,9 @@ class DahCli:
             default=50,
             help="Page size.",
         )
-        messenger_groups_body_group = messenger_groups_parser.add_mutually_exclusive_group()
+        messenger_groups_body_group = (
+            messenger_groups_parser.add_mutually_exclusive_group()
+        )
         messenger_groups_body_group.add_argument(
             "--body",
             help="Inline JSON body to send to the endpoint.",
@@ -444,7 +453,9 @@ class DahCli:
             group_id=args.group_id,
             page=args.page,
             size=args.size,
-            payload=self._load_payload(args, default_messenger_group_messages_payload()),
+            payload=self._load_payload(
+                args, default_messenger_group_messages_payload()
+            ),
         )
 
     def _build_messenger_groups_page_request(
@@ -492,7 +503,9 @@ class DahCli:
                 MessengerGroupsPageRequest(page=page, size=size),
             )
             if not isinstance(response_data, dict):
-                raise SystemExit("Unable to resolve chat name: unexpected groups response.")
+                raise SystemExit(
+                    "Unable to resolve chat name: unexpected groups response."
+                )
 
             groups = response_data.get("content", [])
             if not isinstance(groups, list):
@@ -516,7 +529,8 @@ class DahCli:
         if len(matches) > 1:
             ids = ", ".join(str(match.get("id", "")) for match in matches)
             raise SystemExit(
-                f"Multiple chats found by exact name '{chat_name}'. Use --group-id. Matches: {ids}",
+                f"Multiple chats found by exact name '{chat_name}'. "
+                f"Use --group-id. Matches: {ids}",
             )
 
         group_id = matches[0].get("id")
@@ -555,6 +569,7 @@ class DahCli:
             print(json.dumps(data, ensure_ascii=False))
         else:
             print(json.dumps(data, ensure_ascii=False, indent=2))
+
 
 def main() -> int:
     return DahCli().run()
