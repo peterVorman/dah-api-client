@@ -2,5 +2,10 @@
 max-line-length = 88
 max-complexity = 5
 extend-ignore = E203
+exclude =
+    .git,
+    .venv,
+    __pycache__,
+    .ruff_cache
 per-file-ignores =
     dah_api.py:E501

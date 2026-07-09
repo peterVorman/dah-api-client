@@ -1,0 +1,2 @@
+[bandit]
+exclude = ./.git,./.venv,./__pycache__,./.ruff_cache,./tests,.git,.venv,__pycache__,.ruff_cache,tests
