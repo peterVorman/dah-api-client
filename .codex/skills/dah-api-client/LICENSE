@@ -1,0 +1,34 @@
+DAH API Client Internal Use License
+
+Copyright (c) 2026 project contributors. All rights reserved.
+
+Permission is granted only to authorized users of this repository or skill
+package to use, copy, and modify this software for internal purposes connected
+with authorized DAH cabinet integrations for organizations where those users
+have lawful authority.
+
+This license does not permit public redistribution, sublicensing, sale, or
+operation of this software as a public service. This software must not be used
+against DAH accounts, associations, APIs, or data without proper authorization.
+
+This project is independent from DAH and is not affiliated with, endorsed by, or
+sponsored by DAH, TOV "Dah Development", or related service operators. This
+license grants no rights to DAH services, APIs, data, trademarks, user
+interfaces, documentation, infrastructure, or other DAH intellectual property.
+Access to DAH remains governed by DAH terms, privacy policy, agreements with
+associations, and applicable law.
+
+Users are responsible for protecting credentials and bearer tokens, limiting
+access to personal, financial, and association data, and using this software
+only within their authority and legal obligations.
+
+The owner of this repository or skill package may grant additional permissions
+in writing.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS,
+COPYRIGHT HOLDERS, OR CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
+OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OF OR OTHER DEALINGS IN
+THE SOFTWARE.

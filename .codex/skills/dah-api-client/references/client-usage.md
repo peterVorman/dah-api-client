@@ -13,6 +13,17 @@ Important files:
 - `dah_api.py`: object-oriented API client, configuration, request types, and exceptions.
 - `main.py`: CLI wrapper around the client.
 
+## License And DAH Terms
+
+The repository or skill package `LICENSE` allows internal use only. It does not
+grant rights to DAH services, APIs, data, trademarks, UI, documentation, or
+infrastructure. Use the client only with authorized DAH accounts and within the
+user's authority for the relevant association.
+
+Treat DAH responses as potentially personal, financial, or association-confidential
+data. Do not commit captured API responses, tokens, exported reports, or chat
+content unless the user explicitly asks and the data is appropriate for the repo.
+
 ## Configuration
 
 Use `DahApiConfig.from_env()` for scripts that should respect the user's shell environment.
