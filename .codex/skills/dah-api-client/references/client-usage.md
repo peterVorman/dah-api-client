@@ -15,14 +15,17 @@ Important files:
 
 ## License And DAH Terms
 
-The repository or skill package `LICENSE` allows internal use only. It does not
-grant rights to DAH services, APIs, data, trademarks, UI, documentation, or
-infrastructure. Use the client only with authorized DAH accounts and within the
-user's authority for the relevant association.
+The repository or skill package `LICENSE` is source-available and restricted-use.
+It does not grant rights to DAH services, APIs, data, trademarks, UI,
+documentation, or infrastructure. Use the client only with authorized DAH
+accounts and within the user's authority for the relevant association.
 
 Treat DAH responses as potentially personal, financial, or association-confidential
 data. Do not commit captured API responses, tokens, exported reports, or chat
 content unless the user explicitly asks and the data is appropriate for the repo.
+
+Do not provide DAH access, token acquisition help, account support, billing
+support, association support, or operational DAH troubleshooting.
 
 ## Configuration
 
@@ -83,7 +86,7 @@ try:
     )
     sent_message = client.send_messenger_message(
         MessengerMessageRequest(
-            group_id="1b7f0b83-0604-4348-b605-33a027e0ad32",
+            group_id="<messenger group id>",
             payload="Ліфт відновив роботу",
         )
     )

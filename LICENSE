@@ -1,15 +1,21 @@
-DAH API Client Internal Use License
+DAH API Client Source Available Restricted Use License
 
 Copyright (c) 2026 project contributors. All rights reserved.
 
+This software is source-available, not open source.
+
 Permission is granted only to authorized users of this repository or skill
-package to use, copy, and modify this software for internal purposes connected
-with authorized DAH cabinet integrations for organizations where those users
+package to view, copy, and modify this software for private or internal purposes
+connected with DAH cabinet integrations for organizations where those users
 have lawful authority.
 
-This license does not permit public redistribution, sublicensing, sale, or
-operation of this software as a public service. This software must not be used
-against DAH accounts, associations, APIs, or data without proper authorization.
+No permission is granted to publicly redistribute, sublicense, sell, host,
+provide as a service, or otherwise make this software available to third parties
+without written permission from the repository owner.
+
+This software must not be used to access, test, scrape, automate, interfere
+with, or extract data from DAH accounts, associations, APIs, or services unless
+the user has proper authorization for that specific use.
 
 This project is independent from DAH and is not affiliated with, endorsed by, or
 sponsored by DAH, TOV "Dah Development", or related service operators. This
@@ -18,17 +24,24 @@ interfaces, documentation, infrastructure, or other DAH intellectual property.
 Access to DAH remains governed by DAH terms, privacy policy, agreements with
 associations, and applicable law.
 
-Users are responsible for protecting credentials and bearer tokens, limiting
-access to personal, financial, and association data, and using this software
-only within their authority and legal obligations.
+Users are solely responsible for:
 
-The owner of this repository or skill package may grant additional permissions
-in writing.
+- obtaining and maintaining lawful DAH access;
+- protecting credentials, bearer tokens, and session data;
+- limiting access to personal, financial, association, and chat data;
+- complying with DAH terms and applicable privacy, data protection, housing,
+  accounting, and communications laws;
+- any consequences of unauthorized, excessive, abusive, or unlawful use.
+
+No support, maintenance, warranty, or service availability commitment is
+provided. The owner of this repository or skill package may grant additional
+permissions in writing.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS,
-COPYRIGHT HOLDERS, OR CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
-OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OF OR OTHER DEALINGS IN
-THE SOFTWARE.
+FOR A PARTICULAR PURPOSE, SECURITY, RELIABILITY, ACCURACY, AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS, COPYRIGHT HOLDERS, OR CONTRIBUTORS BE LIABLE FOR
+ANY CLAIM, DAMAGES, DATA LOSS, ACCOUNT ACTION, SERVICE DISRUPTION, PRIVACY
+INCIDENT, LEGAL CONSEQUENCE, OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OF OR OTHER DEALINGS IN THE SOFTWARE.

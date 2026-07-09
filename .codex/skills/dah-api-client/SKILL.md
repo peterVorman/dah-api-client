@@ -9,11 +9,12 @@ description: Work with the DAH cabinet API through the local Python client in th
 
 Use the existing client code in the repository root as the integration boundary. Do not reimplement authentication, headers, JSON decoding, or endpoint URLs unless the task is explicitly to change that client.
 
-Respect the repository or skill package `LICENSE`: this is internal tooling for
-authorized DAH accounts only. Do not present it as an official DAH integration,
-do not imply rights to DAH services, APIs, data, trademarks, or infrastructure,
-and keep personal, financial, association, and credential data out of artifacts
-unless the user explicitly asks for a necessary authorized operation.
+Respect the repository or skill package `LICENSE`: this is source-available
+restricted-use tooling for authorized DAH accounts only. Do not present it as an
+official DAH integration, do not imply rights to DAH services, APIs, data,
+trademarks, or infrastructure, and keep personal, financial, association, and
+credential data out of artifacts unless the user explicitly asks for a necessary
+authorized operation.
 
 ## Workflow
 
@@ -22,6 +23,9 @@ unless the user explicitly asks for a necessary authorized operation.
 3. Prefer `DahApiClient` for Python work and `main.py` for quick command-line queries.
 4. Read `references/client-usage.md` when you need exact imports, CLI examples, endpoint details, or extension patterns.
 5. Keep tokens out of final answers, logs, fixtures, screenshots, and committed test data. Require `DAH_BEARER_TOKEN` from the environment or `.env.local`; do not pass tokens through CLI arguments.
+6. Do not provide DAH access, token acquisition help, account support, billing
+   support, association support, or operational DAH troubleshooting; route those
+   topics to DAH official support channels.
 
 ## Validation
 
