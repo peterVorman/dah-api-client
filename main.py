@@ -7,7 +7,7 @@ import argparse
 import json
 import os
 import sys
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -17,7 +17,6 @@ from dah_api import (
     DEFAULT_REFERER,
     DEFAULT_USER_AGENT,
     MISSING_BEARER_TOKEN_MESSAGE,
-    MISSING_MESSENGER_GROUP_ID_MESSAGE,
     BillDebtAnalyticsRequest,
     DahApiClient,
     DahApiConfig,
@@ -30,12 +29,11 @@ from dah_api import (
     MoneyTransactionBankListRequest,
     PublicationsSearchRequest,
     default_bill_debt_analytics_payload,
-    default_feedback_order_list_payload,
-    default_messenger_group_messages_payload,
-    default_messenger_groups_page_payload,
-    default_money_transaction_bank_list_payload,
-    default_publications_payload,
     load_env_file,
+)
+
+MISSING_MESSENGER_GROUP_ID_MESSAGE = (
+    "Missing messenger group id. Set DAH_MESSENGER_GROUP_ID or pass --group-id."
 )
 
 
@@ -43,14 +41,41 @@ class DahCli:
     def __init__(self) -> None:
         load_env_file()
         self.parser = self._build_parser()
-        self.payload_loader = PayloadLoader()
 
     def run(self, argv: list[str] | None = None) -> int:
         args = self.parser.parse_args(argv)
         client = DahApiClient(self._build_config(args))
 
         try:
-            response_data = CommandRouter(self, client, args).dispatch()
+            handlers = {
+                "access": client.get_access,
+                "publications-search": lambda: client.search_publications(
+                    self._build_publications_request(args)
+                ),
+                "bill-debt-analytics": lambda: client.get_bill_debt_analytics(
+                    self._build_bill_debt_analytics_request(args)
+                ),
+                "feedback-order-list": lambda: client.list_feedback_orders(
+                    self._build_feedback_order_list_request(args)
+                ),
+                "money-transaction-bank-list": lambda: (
+                    client.list_money_transaction_bank(
+                        self._build_money_transaction_bank_list_request(args)
+                    )
+                ),
+                "messenger-group-messages": lambda: (
+                    client.list_messenger_group_messages(
+                        self._build_messenger_group_messages_request(args)
+                    )
+                ),
+                "messenger-groups-page": lambda: client.list_messenger_groups(
+                    self._build_messenger_groups_page_request(args)
+                ),
+                "messenger-send-message": lambda: self._send_or_preview_message(
+                    args, client
+                ),
+            }
+            response_data = handlers[args.command]()
         except DahHttpError as exc:
             print(f"HTTP {exc.status_code} {exc.reason}", file=sys.stderr)
             if exc.body:
@@ -60,7 +85,8 @@ class DahCli:
             print(str(exc), file=sys.stderr)
             return 1
 
-        self._print_response(response_data, compact=args.compact)
+        indent = None if args.compact else 2
+        print(json.dumps(response_data, ensure_ascii=False, indent=indent))
         return 0
 
     def _send_or_preview_message(
@@ -375,13 +401,13 @@ class DahCli:
         self,
         args: argparse.Namespace,
     ) -> PublicationsSearchRequest:
+        payload = {"statuses": ["PUBLISHED"]}
+        if association_id := os.getenv("DAH_ASSOCIATION_ID"):
+            payload["associationId"] = association_id
         return PublicationsSearchRequest(
             page=args.page,
             size=args.size,
-            payload=self.payload_loader.load(
-                args,
-                default_publications_payload(os.getenv("DAH_ASSOCIATION_ID")),
-            ),
+            payload=load_payload(args, payload),
         )
 
     def _build_bill_debt_analytics_request(
@@ -390,7 +416,7 @@ class DahCli:
     ) -> BillDebtAnalyticsRequest:
         return BillDebtAnalyticsRequest(
             association_id=args.association_id,
-            payload=self.payload_loader.load(
+            payload=load_payload(
                 args,
                 default_bill_debt_analytics_payload(
                     date=args.date,
@@ -405,9 +431,9 @@ class DahCli:
     ) -> FeedbackOrderListRequest:
         return FeedbackOrderListRequest(
             association_id=args.association_id,
-            payload=self.payload_loader.load(
+            payload=load_payload(
                 args,
-                default_feedback_order_list_payload(),
+                {},
             ),
         )
 
@@ -415,17 +441,14 @@ class DahCli:
         self,
         args: argparse.Namespace,
     ) -> MoneyTransactionBankListRequest:
+        payload = {"direction": args.direction}
+        if args.from_date:
+            payload["from"] = args.from_date
         return MoneyTransactionBankListRequest(
             association_id=args.association_id,
             page=args.page,
             size=args.size,
-            payload=self.payload_loader.load(
-                args,
-                default_money_transaction_bank_list_payload(
-                    direction=args.direction,
-                    from_date=args.from_date,
-                ),
-            ),
+            payload=load_payload(args, payload),
         )
 
     def _build_messenger_group_messages_request(
@@ -438,9 +461,7 @@ class DahCli:
             group_id=args.group_id,
             page=args.page,
             size=args.size,
-            payload=self.payload_loader.load(
-                args, default_messenger_group_messages_payload()
-            ),
+            payload=load_payload(args, {}),
         )
 
     def _build_messenger_groups_page_request(
@@ -450,9 +471,9 @@ class DahCli:
         return MessengerGroupsPageRequest(
             page=args.page,
             size=args.size,
-            payload=self.payload_loader.load(
+            payload=load_payload(
                 args,
-                default_messenger_groups_page_payload(),
+                {},
             ),
         )
 
@@ -476,62 +497,17 @@ class DahCli:
             **kwargs,
         )
 
-    @staticmethod
-    def _print_response(data: Any, *, compact: bool) -> None:
-        if compact:
-            print(json.dumps(data, ensure_ascii=False))
-        else:
-            print(json.dumps(data, ensure_ascii=False, indent=2))
-
-
-@dataclass(slots=True)
-class CommandRouter:
-    cli: DahCli
-    client: DahApiClient
-    args: argparse.Namespace
-
-    def dispatch(self) -> Any:
-        handlers: dict[str, Callable[[], Any]] = {
-            "access": self.client.get_access,
-            "publications-search": lambda: self.client.search_publications(
-                self.cli._build_publications_request(self.args)
-            ),
-            "bill-debt-analytics": lambda: self.client.get_bill_debt_analytics(
-                self.cli._build_bill_debt_analytics_request(self.args)
-            ),
-            "feedback-order-list": lambda: self.client.list_feedback_orders(
-                self.cli._build_feedback_order_list_request(self.args)
-            ),
-            "money-transaction-bank-list": lambda: (
-                self.client.list_money_transaction_bank(
-                    self.cli._build_money_transaction_bank_list_request(self.args)
-                )
-            ),
-            "messenger-group-messages": lambda: (
-                self.client.list_messenger_group_messages(
-                    self.cli._build_messenger_group_messages_request(self.args)
-                )
-            ),
-            "messenger-groups-page": lambda: self.client.list_messenger_groups(
-                self.cli._build_messenger_groups_page_request(self.args)
-            ),
-            "messenger-send-message": lambda: self.cli._send_or_preview_message(
-                self.args, self.client
-            ),
-        }
-        return handlers[self.args.command]()
-
 
 @dataclass(slots=True)
 class MessengerGroupResolver:
     client: DahApiClient
 
     def resolve(self, chat_name: str) -> str:
-        expected_name = self.normalize_name(chat_name)
+        expected_name = chat_name.strip().casefold()
         matches = [
             group
             for group in self.iter_groups()
-            if self.normalize_name(group.get("name", "")) == expected_name
+            if str(group.get("name", "")).strip().casefold() == expected_name
         ]
         return self.select_single_id(matches, chat_name)
 
@@ -585,34 +561,28 @@ class MessengerGroupResolver:
     def format_group_ids(matches: list[dict[str, Any]]) -> str:
         return ", ".join(str(match.get("id", "")) for match in matches)
 
-    @staticmethod
-    def normalize_name(name: str) -> str:
-        return name.strip().casefold()
+
+def load_payload(
+    args: argparse.Namespace,
+    default_payload: dict[str, Any],
+) -> dict[str, Any]:
+    raw_body = args.body
+    if args.body_file:
+        raw_body = read_body_file(args.body_file)
+    if raw_body is None:
+        return default_payload
+    try:
+        return json.loads(raw_body)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Invalid JSON body: {exc}") from exc
 
 
-class PayloadLoader:
-    def load(
-        self,
-        args: argparse.Namespace,
-        default_payload: dict[str, Any],
-    ) -> dict[str, Any]:
-        raw_body = args.body
-        if args.body_file:
-            raw_body = self.read_body_file(args.body_file)
-        if raw_body is None:
-            return default_payload
-        try:
-            return json.loads(raw_body)
-        except json.JSONDecodeError as exc:
-            raise SystemExit(f"Invalid JSON body: {exc}") from exc
-
-    @staticmethod
-    def read_body_file(path: str) -> str:
-        try:
-            with open(path, "r", encoding="utf-8") as handle:
-                return handle.read()
-        except OSError as exc:
-            raise SystemExit(f"Unable to read body file: {exc}") from exc
+def read_body_file(path: str) -> str:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return handle.read()
+    except OSError as exc:
+        raise SystemExit(f"Unable to read body file: {exc}") from exc
 
 
 def main() -> int:

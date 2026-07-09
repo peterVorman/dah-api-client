@@ -30,6 +30,8 @@ Supported environment variables:
 
 Never print the bearer token. Avoid committing newly captured tokens.
 
+When using `.env.local`, keep entries as plain `KEY=value` lines. The local loader ignores blank lines and comments, and it does not implement shell syntax such as `export KEY=value`.
+
 If a live request returns `401 Unauthorized`, first assume the active token is expired or missing. Use a fresh `DAH_BEARER_TOKEN` from the environment instead of editing code or hard-coding tokens.
 
 ## Python Quick Start
@@ -218,9 +220,6 @@ class ExampleRequest:
     page: int = 0
     size: int = 20
 
-    def query_params(self) -> dict[str, int]:
-        return {"page": self.page, "size": self.size}
-
 
 def example_endpoint(
     self,
@@ -232,12 +231,12 @@ def example_endpoint(
     return self.request_json(
         method="GET",
         path="/example/path",
-        query=effective_request.query_params(),
+        query={"page": effective_request.page, "size": effective_request.size},
         tab_id=tab_id,
     )
 ```
 
-For CLI support, add a subparser in `DahCli._build_parser()` and route it through `CommandRouter`. Keep response printing centralized through `_print_response`.
+For CLI support, add a subparser in `DahCli._build_parser()` and add the command to the local handler map in `DahCli.run()`. Keep response printing centralized through `_print_response`.
 
 ## Testing Without Live API Calls
 
