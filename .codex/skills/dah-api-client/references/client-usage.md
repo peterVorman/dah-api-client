@@ -237,7 +237,7 @@ def example_endpoint(
     )
 ```
 
-For CLI support, add a subparser in `DahCli._build_parser()` and route it in `DahCli.run()`. Keep response printing centralized through `_print_response`.
+For CLI support, add a subparser in `DahCli._build_parser()` and route it through `CommandRouter`. Keep response printing centralized through `_print_response`.
 
 ## Testing Without Live API Calls
 

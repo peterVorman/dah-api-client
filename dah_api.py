@@ -45,52 +45,50 @@ def load_env_file(
     except FileNotFoundError:
         return
 
-    for key, value in _iter_env_assignments(lines):
+    for key, value in _EnvFileParser(lines).assignments():
         if override or key not in os.environ:
             os.environ[key] = value
 
 
-def _iter_env_assignments(lines: list[str]) -> list[tuple[str, str]]:
-    assignments: list[tuple[str, str]] = []
-    for raw_line in lines:
-        assignment = _parse_env_assignment(raw_line)
-        if assignment is not None:
-            assignments.append(assignment)
-    return assignments
+@dataclass(slots=True)
+class _EnvFileParser:
+    lines: list[str]
 
+    def assignments(self) -> list[tuple[str, str]]:
+        assignments: list[tuple[str, str]] = []
+        for raw_line in self.lines:
+            assignment = self.parse_assignment(raw_line)
+            if assignment is not None:
+                assignments.append(assignment)
+        return assignments
 
-def _parse_env_assignment(raw_line: str) -> tuple[str, str] | None:
-    line = _normalize_env_line(raw_line)
-    if "=" not in line:
-        return None
+    def parse_assignment(self, raw_line: str) -> tuple[str, str] | None:
+        line = self.normalize_line(raw_line)
+        if "=" not in line:
+            return None
 
-    key, value = line.split("=", 1)
-    clean_key = _normalize_env_key(key)
-    if clean_key is None:
-        return None
-    return clean_key, _strip_env_value(value.strip())
+        key, value = line.split("=", 1)
+        clean_key = key.strip()
+        if not ENV_KEY_RE.match(clean_key):
+            return None
+        return clean_key, self.strip_value(value)
 
+    @staticmethod
+    def normalize_line(raw_line: str) -> str:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            return ""
+        if line.startswith("export "):
+            return line[len("export ") :].lstrip()
+        return line
 
-def _normalize_env_line(raw_line: str) -> str:
-    line = raw_line.strip()
-    if not line or line.startswith("#"):
-        return ""
-    if line.startswith("export "):
-        return line[len("export ") :].lstrip()
-    return line
-
-
-def _normalize_env_key(key: str) -> str | None:
-    clean_key = key.strip()
-    if ENV_KEY_RE.match(clean_key):
-        return clean_key
-    return None
-
-
-def _strip_env_value(value: str) -> str:
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-        return value[1:-1]
-    return value
+    @staticmethod
+    def strip_value(value: str) -> str:
+        clean_value = value.strip()
+        if len(clean_value) >= 2 and clean_value[0] == clean_value[-1]:
+            if clean_value[0] in {"'", '"'}:
+                return clean_value[1:-1]
+        return clean_value
 
 
 def default_publications_payload(
@@ -491,7 +489,20 @@ class DahApiClient:
             payload=payload,
             tab_id=tab_id,
         )
-        return self._perform_request(request)
+        try:
+            with urllib.request.urlopen(  # nosec B310
+                request,
+                timeout=self.config.timeout,
+            ) as response:
+                return json.loads(self._read_response_text(response))
+        except urllib.error.HTTPError as exc:
+            raise DahHttpError(
+                exc.code,
+                exc.reason,
+                self._read_response_text(exc),
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise DahRequestError(f"Request failed: {exc}") from exc
 
     def _build_request(
         self,
@@ -536,29 +547,8 @@ class DahApiClient:
             headers["Content-Type"] = "application/json"
         return headers
 
-    def _perform_request(self, request: urllib.request.Request) -> Any:
-        try:
-            return self._request_json(request)
-        except urllib.error.HTTPError as exc:
-            raise self._http_error(exc) from exc
-        except urllib.error.URLError as exc:
-            raise DahRequestError(f"Request failed: {exc}") from exc
-
-    def _request_json(
-        self,
-        request: urllib.request.Request,
-    ) -> Any:
-        with urllib.request.urlopen(  # nosec B310
-            request,
-            timeout=self.config.timeout,
-        ) as response:
-            return json.loads(self._decode_response(response))
-
-    def _decode_response(self, response: Any) -> str:
+    def _read_response_text(self, response: Any) -> str:
         data = response.read()
         if response.headers.get("Content-Encoding", "").lower() == "gzip":
             data = gzip.decompress(data)
         return data.decode("utf-8")
-
-    def _http_error(self, exc: urllib.error.HTTPError) -> DahHttpError:
-        return DahHttpError(exc.code, exc.reason, self._decode_response(exc))
