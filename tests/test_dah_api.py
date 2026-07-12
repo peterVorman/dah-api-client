@@ -1,5 +1,6 @@
 import gzip
 import io
+import ssl
 import urllib.error
 
 import pytest
@@ -83,6 +84,7 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
             for line in ("DAH_KEY=value", "1BAD=value", "#x", "ignored", " ")
         ],
         (cfg.token, cfg.tab_id, cfg.origin, cfg.referer, cfg.user_agent),
+        isinstance(cfg.ssl_context, ssl.SSLContext),
         (bill["date"], bill["debtFilterAccruals"], bill["debtFilterMonths"]),
         dah_api.PublicationsSearchRequest().payload,
         dah_api.FeedbackOrderListRequest().payload,
@@ -103,6 +105,7 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
             "https://referer.example/",
             "agent",
         ),
+        True,
         ("2026-07-08T15:10", 4, 0),
         {"statuses": ["PUBLISHED"]},
         {},
@@ -227,8 +230,8 @@ def test_request_json_success(monkeypatch):
     client = dah_api.DahApiClient(config(tab_id="configured-tab", timeout=12))
     seen = []
 
-    def success(request, timeout):
-        seen.append((request, timeout))
+    def success(request, timeout, context):
+        seen.append((request, timeout, context))
         return Response(gzip.compress(b'{"ok": true}'), {"Content-Encoding": "gzip"})
 
     monkeypatch.setattr(dah_api.urllib.request, "urlopen", success)
@@ -238,10 +241,11 @@ def test_request_json_success(monkeypatch):
         query={"name": "two words"},
         payload={"x": 1},
     ) == {"ok": True}
-    request, timeout = seen[0]
+    request, timeout, context = seen[0]
     headers = {key.lower(): value for key, value in request.header_items()}
     assert (
         timeout,
+        isinstance(context, ssl.SSLContext),
         request.full_url,
         request.data,
         request.get_method(),
@@ -250,6 +254,7 @@ def test_request_json_success(monkeypatch):
         headers["content-type"],
     ) == (
         12,
+        True,
         "https://api.dah-online.com/test?name=two+words",
         b'{"x":1}',
         "POST",
@@ -279,7 +284,7 @@ def test_build_request_without_body():
 def test_request_json_errors(monkeypatch):
     client = dah_api.DahApiClient(config())
 
-    def http_error(request, timeout):
+    def http_error(request, timeout, context):
         raise urllib.error.HTTPError(
             request.full_url,
             418,
@@ -297,7 +302,7 @@ def test_request_json_errors(monkeypatch):
         '{"error": true}',
     )
 
-    def url_error(request, timeout):
+    def url_error(request, timeout, context):
         raise urllib.error.URLError("offline")
 
     monkeypatch.setattr(dah_api.urllib.request, "urlopen", url_error)

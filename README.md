@@ -50,6 +50,9 @@ python main.py access
 For local configuration, prefer `.env.local` with plain `KEY=value` lines. That
 file is ignored by git.
 
+TLS certificate verification uses the bundled `certifi` CA bundle by default,
+so a manual `SSL_CERT_FILE` export is not required for normal use.
+
 ## Quality Checks
 
 ```bash

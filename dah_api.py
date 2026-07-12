@@ -6,6 +6,7 @@ import gzip
 import json
 import os
 import re
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -13,6 +14,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from time import time
 from typing import Any
+
+import certifi
 
 DEFAULT_BASE_URL = "https://api.dah-online.com"
 ALLOWED_API_HOST = "api.dah-online.com"
@@ -23,12 +26,16 @@ DEFAULT_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/146.0.0.0 Safari/537.36"
 )
-ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+ENV_ASSIGNMENT_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$")
 MISSING_BEARER_TOKEN_MESSAGE = "Missing bearer token. Set DAH_BEARER_TOKEN."  # nosec B105
 MISSING_ASSOCIATION_ID_MESSAGE = (
     "Unable to resolve a single association id from get_access. "
     "Set DAH_ASSOCIATION_ID or pass --association-id."
 )
+
+
+def default_ssl_context() -> ssl.SSLContext:
+    return ssl.create_default_context(cafile=os.getenv("SSL_CERT_FILE") or certifi.where())
 
 
 def load_env_file(
@@ -46,17 +53,11 @@ def load_env_file(
 
 
 def _parse_env_assignment(raw_line: str) -> tuple[str, str] | None:
-    line = raw_line.strip()
-    if not line or line.startswith("#"):
-        return None
-    if "=" not in line:
+    match = ENV_ASSIGNMENT_RE.match(raw_line)
+    if not match:
         return None
 
-    key, value = line.split("=", 1)
-    clean_key = key.strip()
-    if not ENV_KEY_RE.match(clean_key):
-        return None
-    return clean_key, value.strip()
+    return match.group(1), match.group(2).strip()
 
 
 def default_bill_debt_analytics_payload(
@@ -91,6 +92,11 @@ class DahApiConfig:
     referer: str = DEFAULT_REFERER
     user_agent: str = DEFAULT_USER_AGENT
     timeout: float = 30
+    ssl_context: ssl.SSLContext = field(
+        default_factory=default_ssl_context,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         if not self.token:
@@ -365,6 +371,7 @@ class DahApiClient:
             with urllib.request.urlopen(  # nosec B310
                 request,
                 timeout=self.config.timeout,
+                context=self.config.ssl_context,
             ) as response:
                 return json.loads(self._read_response_text(response))
         except urllib.error.HTTPError as exc:

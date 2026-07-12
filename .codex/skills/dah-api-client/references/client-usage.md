@@ -41,10 +41,14 @@ Supported environment variables:
 - `DAH_REFERER`: Referer header, default `https://cabinet.dah-online.com/`.
 - `DAH_USER_AGENT`: User-Agent header.
 - `DAH_MESSENGER_GROUP_ID`: optional default group id for `messenger-group-messages`.
+- `SSL_CERT_FILE`: optional custom CA bundle path. When unset, the client uses
+  `certifi` for TLS certificate verification.
 
 Never print the bearer token. Avoid committing newly captured tokens.
 
-When using `.env.local`, keep entries as plain `KEY=value` lines. The local loader ignores blank lines and comments, and it does not implement shell syntax such as `export KEY=value`.
+When using `.env.local`, keep entries as plain `KEY=value` lines. The local
+loader ignores blank lines and comments, and it does not implement shell syntax
+or shell quoting such as `export KEY=value` or `KEY="value"`.
 
 If a live request returns `401 Unauthorized`, first assume the active token is expired or missing. Use a fresh `DAH_BEARER_TOKEN` from the environment instead of editing code or hard-coding tokens.
 
