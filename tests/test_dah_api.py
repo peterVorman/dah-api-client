@@ -88,6 +88,7 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
         (bill["date"], bill["debtFilterAccruals"], bill["debtFilterMonths"]),
         dah_api.PublicationsSearchRequest().payload,
         dah_api.FeedbackOrderListRequest().payload,
+        dah_api.FeedbackOrderStatusRequest("order-id").to_payload(),
         dah_api.MessengerGroupMessagesRequest("g").payload,
         dah_api.MessengerGroupsPageRequest().payload,
         dah_api.MoneyTransactionBankListRequest().payload,
@@ -109,6 +110,7 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
         ("2026-07-08T15:10", 4, 0),
         {"statuses": ["PUBLISHED"]},
         {},
+        {"status": "DONE"},
         {},
         {},
         {"direction": "EXPENSE"},
@@ -176,6 +178,9 @@ def test_endpoint_requests():
     client.list_feedback_orders(
         dah_api.FeedbackOrderListRequest("feedback/id", {"feedback": True})
     )
+    client.update_feedback_order_status(
+        dah_api.FeedbackOrderStatusRequest("order/id", "DONE")
+    )
     client.list_money_transaction_bank(
         dah_api.MoneyTransactionBankListRequest(
             "money/id",
@@ -199,6 +204,7 @@ def test_endpoint_requests():
         "/publications/search",
         "/accounting/v1/report/bill/assoc%2Fid/debt/analytics",
         "/feedback/order/list/feedback%2Fid",
+        "/feedback/order/comment/order%2Fid",
         "/accounting/v1/money/transaction/money%2Fid/list/bank",
         "/messenger/groups/group%2Fid/messages",
         "/messenger/groups/page",
@@ -209,13 +215,15 @@ def test_endpoint_requests():
         client.calls[1]["payload"]["associationId"],
         client.calls[2]["payload"],
         client.calls[2]["tab_id"],
-        client.calls[4]["query"],
-        client.calls[7]["payload"],
+        client.calls[4]["payload"],
+        client.calls[5]["query"],
+        client.calls[8]["payload"],
     ) == (
         {"page": 1, "size": 2},
         "assoc-id",
         {"debt": True},
         "tab",
+        {"status": "DONE"},
         {"page": 3, "size": 4},
         {
             "createTime": 9,

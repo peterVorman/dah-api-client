@@ -141,6 +141,15 @@ class FeedbackOrderListRequest:
 
 
 @dataclass(slots=True)
+class FeedbackOrderStatusRequest:
+    order_id: str
+    status: str = "DONE"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {"status": self.status}
+
+
+@dataclass(slots=True)
 class MoneyTransactionBankListRequest:
     association_id: str | None = None
     page: int = 0
@@ -257,6 +266,20 @@ class DahApiClient:
             method="POST",
             path=f"/feedback/order/list/{association_id}",
             payload=list_request.payload,
+            tab_id=tab_id,
+        )
+
+    def update_feedback_order_status(
+        self,
+        request: FeedbackOrderStatusRequest,
+        *,
+        tab_id: str | None = None,
+    ) -> Any:
+        order_id = urllib.parse.quote(request.order_id, safe="")
+        return self.request_json(
+            method="PUT",
+            path=f"/feedback/order/comment/{order_id}",
+            payload=request.to_payload(),
             tab_id=tab_id,
         )
 

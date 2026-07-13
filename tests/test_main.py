@@ -36,6 +36,9 @@ class FakeClient:
     def list_feedback_orders(self, request):
         return self.record("feedback-order-list", request)
 
+    def update_feedback_order_status(self, request):
+        return self.record("feedback-order-status", request)
+
     def list_money_transaction_bank(self, request):
         return self.record("money-transaction-bank-list", request)
 
@@ -152,6 +155,19 @@ CASES = [
         "feedback-order-list",
         ("association_id", "payload"),
         {"association_id": "assoc-id", "payload": {"status": "OPEN"}},
+    ),
+    single(
+        args("feedback-order-status order-id --status DONE"),
+        {"method": "feedback-order-status"},
+        "feedback-order-status",
+        ("order_id", "status"),
+        {"order_id": "order-id", "status": "DONE"},
+    ),
+    case(
+        args("feedback-order-status order-id --dry-run"),
+        {"status": "DONE"},
+        None,
+        calls=[],
     ),
     single(
         args(

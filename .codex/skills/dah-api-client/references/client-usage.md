@@ -62,6 +62,7 @@ from dah_api import (
     DahRequestError,
     BillDebtAnalyticsRequest,
     FeedbackOrderListRequest,
+    FeedbackOrderStatusRequest,
     MoneyTransactionBankListRequest,
     MessengerGroupMessagesRequest,
     MessengerGroupsPageRequest,
@@ -81,6 +82,12 @@ try:
         )
     )
     feedback_orders = client.list_feedback_orders(FeedbackOrderListRequest())
+    closed_order = client.update_feedback_order_status(
+        FeedbackOrderStatusRequest(
+            order_id="<feedback order id>",
+            status="DONE",
+        )
+    )
     bank_transactions = client.list_money_transaction_bank(
         MoneyTransactionBankListRequest(page=0, size=50)
     )
@@ -111,6 +118,7 @@ python3 main.py publications-search --body '{"associationId":"<association id>",
 python3 main.py publications-search --body-file request.json --compact
 python3 main.py bill-debt-analytics --date 2026-07-08T15:10 --debt-filter-accruals 1
 python3 main.py feedback-order-list
+python3 main.py feedback-order-status '<feedback order id>' --status DONE --dry-run
 python3 main.py money-transaction-bank-list --direction EXPENSE --from-date 2026-07-01T00:00:00 --page 0 --size 50
 python3 main.py messenger-groups-page --page 0 --size 50
 python3 main.py messenger-group-messages --group-id '<messenger group id>' --page 0 --size 50
@@ -148,6 +156,23 @@ POST /accounting/v1/report/bill/<associationId>/debt/analytics
 ```text
 POST /feedback/order/list/<associationId>
 ```
+
+`DahApiClient.update_feedback_order_status()` calls:
+
+```text
+PUT /feedback/order/comment/<orderId>
+```
+
+Default status payload:
+
+```json
+{
+  "status": "DONE"
+}
+```
+
+Use `python3 main.py feedback-order-status '<feedback order id>' --dry-run` to
+preview the body before changing a DAH feedback order status.
 
 `DahApiClient.list_money_transaction_bank()` calls:
 

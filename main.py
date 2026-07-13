@@ -23,6 +23,7 @@ from dah_api import (
     DahHttpError,
     DahRequestError,
     FeedbackOrderListRequest,
+    FeedbackOrderStatusRequest,
     MessengerGroupMessagesRequest,
     MessengerGroupsPageRequest,
     MessengerMessageRequest,
@@ -58,6 +59,9 @@ class DahCli:
                 "feedback-order-list": lambda: client.list_feedback_orders(
                     self._build_feedback_order_list_request(args)
                 ),
+                "feedback-order-status": lambda: self._update_or_preview_order_status(
+                    args, client
+                ),
                 "money-transaction-bank-list": lambda: (
                     client.list_money_transaction_bank(
                         self._build_money_transaction_bank_list_request(args)
@@ -88,6 +92,16 @@ class DahCli:
         indent = None if args.compact else 2
         print(json.dumps(response_data, ensure_ascii=False, indent=indent))
         return 0
+
+    def _update_or_preview_order_status(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> Any:
+        request = FeedbackOrderStatusRequest(args.order_id, args.status)
+        if args.dry_run:
+            return request.to_payload()
+        return client.update_feedback_order_status(request)
 
     def _send_or_preview_message(
         self,
@@ -231,6 +245,26 @@ class DahCli:
         feedback_body_group.add_argument(
             "--body-file",
             help="Path to a JSON file containing the request body.",
+        )
+
+        feedback_status_parser = subparsers.add_parser(
+            "feedback-order-status",
+            help="PUT /feedback/order/comment/{orderId}",
+            description="Update feedback order status.",
+        )
+        feedback_status_parser.add_argument(
+            "order_id",
+            help="Feedback order id path parameter.",
+        )
+        feedback_status_parser.add_argument(
+            "--status",
+            default="DONE",
+            help="Status value to send. Defaults to DONE.",
+        )
+        feedback_status_parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Print the status request body without sending it.",
         )
 
         money_transaction_parser = subparsers.add_parser(
