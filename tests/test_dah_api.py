@@ -92,6 +92,7 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
         dah_api.MessengerGroupMessagesRequest("g").payload,
         dah_api.MessengerGroupsPageRequest().payload,
         dah_api.MoneyTransactionBankListRequest().payload,
+        dah_api.PublicationSaveRequest({"title": "Hi"}).to_payload("assoc-id"),
         dah_api.MessengerMessageRequest("g", "hi").to_payload(),
     ) == (
         "file-token",
@@ -114,6 +115,7 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
         {},
         {},
         {"direction": "EXPENSE"},
+        {"associationId": "assoc-id", "title": "Hi"},
         {
             "createTime": 1234,
             "groupId": "g",
@@ -170,6 +172,11 @@ def test_association_resolution_errors(access):
 def test_endpoint_requests():
     client = RecordingClient()
     client.search_publications(dah_api.PublicationsSearchRequest(page=1, size=2))
+    client.get_publication("publication/id")
+    client.save_publication(dah_api.PublicationSaveRequest({"title": "New"}))
+    client.save_publication(
+        dah_api.PublicationSaveRequest({"id": "publication-id", "title": "Edited"})
+    )
     client._default_association_id = "assoc/id"
     client.get_bill_debt_analytics(
         dah_api.BillDebtAnalyticsRequest(payload={"debt": True}),
@@ -202,6 +209,9 @@ def test_endpoint_requests():
     assert [call["path"] for call in client.calls] == [
         "/organization/v1/access",
         "/publications/search",
+        "/publications/get/publication%2Fid",
+        "/publications/v2/add/web",
+        "/publications/v2/edit/web",
         "/accounting/v1/report/bill/assoc%2Fid/debt/analytics",
         "/feedback/order/list/feedback%2Fid",
         "/feedback/order/comment/order%2Fid",
@@ -213,14 +223,18 @@ def test_endpoint_requests():
     assert (
         client.calls[1]["query"],
         client.calls[1]["payload"]["associationId"],
-        client.calls[2]["payload"],
-        client.calls[2]["tab_id"],
+        client.calls[3]["payload"],
         client.calls[4]["payload"],
-        client.calls[5]["query"],
-        client.calls[8]["payload"],
+        client.calls[5]["payload"],
+        client.calls[5]["tab_id"],
+        client.calls[7]["payload"],
+        client.calls[8]["query"],
+        client.calls[11]["payload"],
     ) == (
         {"page": 1, "size": 2},
         "assoc-id",
+        {"associationId": "assoc-id", "title": "New"},
+        {"associationId": "assoc-id", "id": "publication-id", "title": "Edited"},
         {"debt": True},
         "tab",
         {"status": "DONE"},

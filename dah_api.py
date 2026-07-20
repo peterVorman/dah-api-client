@@ -35,7 +35,9 @@ MISSING_ASSOCIATION_ID_MESSAGE = (
 
 
 def default_ssl_context() -> ssl.SSLContext:
-    return ssl.create_default_context(cafile=os.getenv("SSL_CERT_FILE") or certifi.where())
+    return ssl.create_default_context(
+        cafile=os.getenv("SSL_CERT_FILE") or certifi.where()
+    )
 
 
 def load_env_file(
@@ -126,6 +128,16 @@ class PublicationsSearchRequest:
     page: int = 0
     size: int = 5
     payload: dict[str, Any] = field(default_factory=lambda: {"statuses": ["PUBLISHED"]})
+
+
+@dataclass(slots=True)
+class PublicationSaveRequest:
+    payload: dict[str, Any]
+
+    def to_payload(self, association_id: str) -> dict[str, Any]:
+        if self.payload.get("associationId"):
+            return self.payload
+        return {**self.payload, "associationId": association_id}
 
 
 @dataclass(slots=True)
@@ -229,6 +241,40 @@ class DahApiClient:
             method="POST",
             path="/publications/search",
             query={"page": search_request.page, "size": search_request.size},
+            payload=payload,
+            tab_id=tab_id,
+        )
+
+    def get_publication(
+        self,
+        publication_id: str,
+        *,
+        tab_id: str | None = None,
+    ) -> Any:
+        publication_id = urllib.parse.quote(publication_id, safe="")
+        return self.request_json(
+            method="GET",
+            path=f"/publications/get/{publication_id}",
+            tab_id=tab_id,
+        )
+
+    def save_publication(
+        self,
+        request: PublicationSaveRequest,
+        *,
+        tab_id: str | None = None,
+    ) -> Any:
+        association_id = (
+            request.payload.get("associationId") or self.get_default_association_id()
+        )
+        payload = request.to_payload(association_id)
+        return self.request_json(
+            method="PUT" if payload.get("id") else "POST",
+            path=(
+                "/publications/v2/edit/web"
+                if payload.get("id")
+                else "/publications/v2/add/web"
+            ),
             payload=payload,
             tab_id=tab_id,
         )

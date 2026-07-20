@@ -28,6 +28,7 @@ from dah_api import (
     MessengerGroupsPageRequest,
     MessengerMessageRequest,
     MoneyTransactionBankListRequest,
+    PublicationSaveRequest,
     PublicationsSearchRequest,
     default_bill_debt_analytics_payload,
     load_env_file,
@@ -52,6 +53,10 @@ class DahCli:
                 "access": client.get_access,
                 "publications-search": lambda: client.search_publications(
                     self._build_publications_request(args)
+                ),
+                "publication-get": lambda: client.get_publication(args.publication_id),
+                "publication-save": lambda: self._save_or_preview_publication(
+                    args, client
                 ),
                 "bill-debt-analytics": lambda: client.get_bill_debt_analytics(
                     self._build_bill_debt_analytics_request(args)
@@ -102,6 +107,16 @@ class DahCli:
         if args.dry_run:
             return request.to_payload()
         return client.update_feedback_order_status(request)
+
+    def _save_or_preview_publication(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> Any:
+        request = PublicationSaveRequest(load_payload(args, {}))
+        if args.dry_run:
+            return request.to_payload(client.get_default_association_id())
+        return client.save_publication(request)
 
     def _send_or_preview_message(
         self,
@@ -185,6 +200,38 @@ class DahCli:
             help="Inline JSON body to send to the endpoint.",
         )
         body_group.add_argument(
+            "--body-file",
+            help="Path to a JSON file containing the request body.",
+        )
+
+        publication_get_parser = subparsers.add_parser(
+            "publication-get",
+            help="GET /publications/get/{publicationId}",
+            description="Fetch a publication by id.",
+        )
+        publication_get_parser.add_argument(
+            "publication_id",
+            help="Publication id path parameter.",
+        )
+
+        publication_save_parser = subparsers.add_parser(
+            "publication-save",
+            help="POST /publications/v2/add/web or PUT /publications/v2/edit/web",
+            description="Create or edit a publication. Include id to edit.",
+        )
+        publication_save_parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Print the publication request body without saving it.",
+        )
+        publication_save_body_group = (
+            publication_save_parser.add_mutually_exclusive_group(required=True)
+        )
+        publication_save_body_group.add_argument(
+            "--body",
+            help="Inline JSON body to send to the endpoint.",
+        )
+        publication_save_body_group.add_argument(
             "--body-file",
             help="Path to a JSON file containing the request body.",
         )

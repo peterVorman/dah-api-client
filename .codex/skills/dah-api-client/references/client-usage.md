@@ -67,6 +67,7 @@ from dah_api import (
     MessengerGroupMessagesRequest,
     MessengerGroupsPageRequest,
     MessengerMessageRequest,
+    PublicationSaveRequest,
     PublicationsSearchRequest,
     default_bill_debt_analytics_payload,
 )
@@ -76,6 +77,21 @@ client = DahApiClient(DahApiConfig.from_env())
 try:
     access = client.get_access()
     publications = client.search_publications(PublicationsSearchRequest(page=0, size=5))
+    publication = client.get_publication("<publication id>")
+    saved_publication = client.save_publication(
+        PublicationSaveRequest(
+            {
+                "associationId": "<association id>",
+                "group": {"id": "<messenger group id>", "name": "Загальний"},
+                "title": "Оголошення",
+                "type": "DISCUSSION",
+                "description": "<p>HTML body</p>",
+                "descriptionHtml": "<p>HTML body</p>",
+                "attachments": [],
+                "commentsEnabled": True,
+            }
+        )
+    )
     debt = client.get_bill_debt_analytics(
         BillDebtAnalyticsRequest(
             payload=default_bill_debt_analytics_payload(date="2026-07-08T15:10"),
@@ -116,6 +132,8 @@ python3 main.py access
 python3 main.py publications-search --page 0 --size 5
 python3 main.py publications-search --body '{"associationId":"<association id>","statuses":["PUBLISHED"]}'
 python3 main.py publications-search --body-file request.json --compact
+python3 main.py publication-get '<publication id>'
+python3 main.py publication-save --body-file publication.json --dry-run
 python3 main.py bill-debt-analytics --date 2026-07-08T15:10 --debt-filter-accruals 1
 python3 main.py feedback-order-list
 python3 main.py feedback-order-status '<feedback order id>' --status DONE --dry-run
@@ -144,6 +162,28 @@ GET /organization/v1/access
 ```text
 POST /publications/search?page=<page>&size=<size>
 ```
+
+`DahApiClient.get_publication()` calls:
+
+```text
+GET /publications/get/<publicationId>
+```
+
+`DahApiClient.save_publication()` calls one of:
+
+```text
+POST /publications/v2/add/web
+PUT /publications/v2/edit/web
+```
+
+Include `id` in the payload to edit; omit `id` to create. When
+`associationId` is missing, the client resolves the single available id from
+`get_access`.
+
+For formatted DAH publications, put the HTML body in both `description` and
+`descriptionHtml`. DAH stores a plain-text `description` and the rendered
+`descriptionHtml`; if `description` is plain text during save, the backend can
+overwrite `descriptionHtml` with unformatted text.
 
 `DahApiClient.get_bill_debt_analytics()` calls:
 
@@ -220,6 +260,22 @@ Default publications payload:
 ```
 
 When `associationId` is missing from the publications payload, the client resolves it from `get_access` if exactly one unique association id is available.
+
+## Publishing Debtors In DAH
+
+For a DAH-internal debtors announcement:
+
+1. Fetch debt analytics with `debtFilterAccruals=4`.
+2. Read rows from the `rows` key. DAH reports debt as negative `endBalance`, so
+   display debt as `-endBalance`.
+3. Replace `Нежитлове приміщення` with `Приміщення` in display text when the
+   user wants the shorter label.
+4. Build an HTML body with paragraphs and list tags, for example
+   `<p>...</p><hr><p><strong>Квартири (...)</strong></p><ul><li><p>...</p></li></ul>`.
+5. Save the publication through `PublicationSaveRequest`, passing the same HTML
+   string in `description` and `descriptionHtml`.
+6. Verify with `get_publication()` that `descriptionHtml` still contains tags
+   such as `<p>`, `<ul>`, and `<li>`.
 
 Default bill debt analytics payload:
 

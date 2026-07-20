@@ -1,6 +1,6 @@
 ---
 name: dah-api-client
-description: Work with the DAH cabinet API through the local Python client in the current repository. Use when Codex needs to query DAH/Dah Online API data, call organization access, publications search, accounting bill debt analytics, feedback order list, bank money transaction list, messenger groups page, messenger group messages, or send messenger message endpoints, inspect DAH API responses, create small API scripts, or extend the existing dah_api.py client and main.py CLI instead of writing a separate HTTP client.
+description: Work with the DAH cabinet API through the local Python client in the current repository. Use when Codex needs to query DAH/Dah Online API data, call organization access, search/get/create/edit publications, accounting bill debt analytics, feedback order list, bank money transaction list, messenger groups page, messenger group messages, or send messenger message endpoints, inspect DAH API responses, create small API scripts, or extend the existing dah_api.py client and main.py CLI instead of writing a separate HTTP client.
 ---
 
 # DAH API Client
@@ -8,6 +8,11 @@ description: Work with the DAH cabinet API through the local Python client in th
 ## Core Rule
 
 Use the existing client code in the repository root as the integration boundary. Do not reimplement authentication, headers, JSON decoding, or endpoint URLs unless the task is explicitly to change that client.
+
+For DAH publications, use `get_publication`/`save_publication`. Formatted
+publication bodies must send the same HTML in both `description` and
+`descriptionHtml`; otherwise DAH can save the announcement as unformatted plain
+text.
 
 Respect the repository or skill package `LICENSE`: this is source-available
 restricted-use tooling for authorized DAH accounts only. Do not present it as an

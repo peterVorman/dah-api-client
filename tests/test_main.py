@@ -30,6 +30,15 @@ class FakeClient:
     def search_publications(self, request):
         return self.record("publications-search", request)
 
+    def get_publication(self, publication_id):
+        return self.record("publication-get", publication_id)
+
+    def save_publication(self, request):
+        return self.record("publication-save", request)
+
+    def get_default_association_id(self):
+        return "assoc-id"
+
     def get_bill_debt_analytics(self, request):
         return self.record("bill-debt-analytics", request)
 
@@ -118,10 +127,7 @@ def single(argv, response, call, attrs=(), request=None, env=None):
 CASES = [
     single(args("--compact access"), {"method": "access"}, "access"),
     single(
-        args(
-            "publications-search --page 2 --size 3 "
-            '--body \'{"statuses":["DRAFT"]}\''
-        ),
+        args('publications-search --page 2 --size 3 --body \'{"statuses":["DRAFT"]}\''),
         {"method": "publications-search"},
         "publications-search",
         ("page", "size", "payload"),
@@ -136,10 +142,39 @@ CASES = [
         {"DAH_ASSOCIATION_ID": "assoc-id"},
     ),
     single(
+        args("publication-get publication-id"),
+        {"method": "publication-get"},
+        "publication-get",
+        (),
+        {},
+    ),
+    case(
+        args('publication-save --dry-run --body \'{"title":"New"}\''),
+        {"associationId": "assoc-id", "title": "New"},
+        None,
+        calls=[],
+    ),
+    single(
+        args(
+            "publication-save --body "
+            '\'{"id":"publication-id","associationId":"assoc-id","title":"Edited"}\''
+        ),
+        {"method": "publication-save"},
+        "publication-save",
+        ("payload",),
+        {
+            "payload": {
+                "id": "publication-id",
+                "associationId": "assoc-id",
+                "title": "Edited",
+            }
+        },
+    ),
+    single(
         args(
             "bill-debt-analytics --association-id assoc-id "
             "--date 2026-07-08T15:10 --debt-filter-accruals 4 "
-            '--body \'{"marker":true}\''
+            "--body '{\"marker\":true}'"
         ),
         {"method": "bill-debt-analytics"},
         "bill-debt-analytics",
@@ -148,8 +183,7 @@ CASES = [
     ),
     single(
         args(
-            "feedback-order-list --association-id assoc-id "
-            '--body \'{"status":"OPEN"}\''
+            'feedback-order-list --association-id assoc-id --body \'{"status":"OPEN"}\''
         ),
         {"method": "feedback-order-list"},
         "feedback-order-list",
@@ -188,7 +222,7 @@ CASES = [
         args(
             "messenger-group-messages --group-id group-id "
             "--page 4 --size 10 --body "
-            '\'{"cursor":true}\''
+            "'{\"cursor\":true}'"
         ),
         {"method": "messenger-group-messages"},
         "messenger-group-messages",
@@ -204,8 +238,7 @@ CASES = [
     ),
     case(
         args(
-            "messenger-send-message --group-id group-id "
-            "--create-time 7 --dry-run hello"
+            "messenger-send-message --group-id group-id --create-time 7 --dry-run hello"
         ),
         {"createTime": 7, "groupId": "group-id", "payload": "hello", "type": "TEXT"},
         None,
