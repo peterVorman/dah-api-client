@@ -27,6 +27,9 @@ class FakeClient:
             raise type(self).access_error
         return self.record("access")
 
+    def authentication_web_login(self, request):
+        return self.record("authentication-web-login", request)
+
     def authentication_relogin(self, request):
         return self.record("authentication-relogin", request)
 
@@ -88,6 +91,8 @@ def cli_env(monkeypatch):
     monkeypatch.delenv("DAH_ASSOCIATION_ID", raising=False)
     monkeypatch.delenv("DAH_MESSENGER_GROUP_ID", raising=False)
     monkeypatch.delenv("DAH_REFRESH_TOKEN", raising=False)
+    monkeypatch.delenv("DAH_LOGIN", raising=False)
+    monkeypatch.delenv("DAH_PASSWORD", raising=False)
 
 
 def run_cli(argv, capsys):
@@ -130,6 +135,27 @@ def single(argv, response, call, attrs=(), request=None, env=None):
 
 CASES = [
     single(args("--compact access"), {"method": "access"}, "access"),
+    case(
+        args("authentication-web-login --dry-run"),
+        {"clientId": "DAH_CLIENT_WEB", "login": "login", "password": "password"},
+        None,
+        calls=[],
+        env={"DAH_LOGIN": "login", "DAH_PASSWORD": "password"},
+    ),
+    single(
+        args(
+            "authentication-web-login --body "
+            '\'{"clientId":"DAH_CLIENT_WEB","login":"login","password":"password"}\''
+        ),
+        {"method": "authentication-web-login"},
+        "authentication-web-login",
+        ("client_id", "login", "password"),
+        {
+            "client_id": "DAH_CLIENT_WEB",
+            "login": "login",
+            "password": "password",
+        },
+    ),
     case(
         args("authentication-relogin --device-id device --dry-run"),
         {
@@ -335,8 +361,12 @@ def test_cli_reports_client_errors(cli_env, capsys, error, expected):
 def test_cli_errors_payloads_and_main(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "load_env_file", lambda: None)
     monkeypatch.delenv("DAH_BEARER_TOKEN", raising=False)
+    monkeypatch.delenv("DAH_LOGIN", raising=False)
+    monkeypatch.delenv("DAH_PASSWORD", raising=False)
     with pytest.raises(SystemExit, match="Missing bearer token"):
         cli.DahCli().run(["access"])
+
+    assert cli.DahCli().run(["authentication-web-login", "--dry-run"]) == 0
 
     monkeypatch.setenv("DAH_BEARER_TOKEN", "unit-token")
     with pytest.raises(SystemExit, match="Missing messenger group id"):

@@ -87,13 +87,14 @@ def default_bill_debt_analytics_payload(
 
 @dataclass(slots=True)
 class DahApiConfig:
-    token: str
+    token: str = ""
     base_url: str = DEFAULT_BASE_URL
     tab_id: str | None = None
     origin: str = DEFAULT_ORIGIN
     referer: str = DEFAULT_REFERER
     user_agent: str = DEFAULT_USER_AGENT
     timeout: float = 30
+    require_token: bool = True
     ssl_context: ssl.SSLContext = field(
         default_factory=default_ssl_context,
         repr=False,
@@ -101,7 +102,7 @@ class DahApiConfig:
     )
 
     def __post_init__(self) -> None:
-        if not self.token:
+        if self.require_token and not self.token:
             raise ValueError(MISSING_BEARER_TOKEN_MESSAGE)
         parsed_url = urllib.parse.urlparse(self.base_url)
         if parsed_url.scheme != "https" or parsed_url.hostname != ALLOWED_API_HOST:
@@ -128,6 +129,20 @@ class PublicationsSearchRequest:
     page: int = 0
     size: int = 5
     payload: dict[str, Any] = field(default_factory=lambda: {"statuses": ["PUBLISHED"]})
+
+
+@dataclass(slots=True)
+class AuthenticationWebLoginRequest:
+    login: str = ""
+    password: str = ""
+    client_id: str = "DAH_CLIENT_WEB"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "clientId": self.client_id,
+            "login": self.login,
+            "password": self.password,
+        }
 
 
 @dataclass(slots=True)
@@ -239,6 +254,20 @@ class DahApiClient:
         return self.request_json(
             method="GET",
             path="/organization/v1/access",
+            tab_id=tab_id,
+        )
+
+    def authentication_web_login(
+        self,
+        request: AuthenticationWebLoginRequest | None = None,
+        *,
+        tab_id: str | None = None,
+    ) -> Any:
+        login_request = request or AuthenticationWebLoginRequest()
+        return self.request_json(
+            method="POST",
+            path="/authentication/web/login",
+            payload=login_request.to_payload(),
             tab_id=tab_id,
         )
 
@@ -515,11 +544,12 @@ class DahApiClient:
     ) -> dict[str, str]:
         headers = {
             "Accept": "application/json, text/plain, */*",
-            "Authorization": f"Bearer {self.config.token}",
             "Origin": self.config.origin,
             "Referer": self.config.referer,
             "User-Agent": self.config.user_agent,
         }
+        if self.config.token:
+            headers["Authorization"] = f"Bearer {self.config.token}"
         effective_tab_id = tab_id if tab_id is not None else self.config.tab_id
         if effective_tab_id:
             headers["X-DAH-TabId"] = effective_tab_id

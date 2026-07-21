@@ -18,6 +18,7 @@ from dah_api import (
     DEFAULT_USER_AGENT,
     MISSING_BEARER_TOKEN_MESSAGE,
     AuthenticationReloginRequest,
+    AuthenticationWebLoginRequest,
     BillDebtAnalyticsRequest,
     DahApiClient,
     DahApiConfig,
@@ -52,6 +53,9 @@ class DahCli:
         try:
             handlers = {
                 "access": client.get_access,
+                "authentication-web-login": lambda: self._login_or_preview(
+                    args, client
+                ),
                 "authentication-relogin": lambda: self._relogin_or_preview(
                     args, client
                 ),
@@ -111,6 +115,16 @@ class DahCli:
         if args.dry_run:
             return request.to_payload()
         return client.update_feedback_order_status(request)
+
+    def _login_or_preview(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> Any:
+        request = self._build_authentication_web_login_request(args)
+        if args.dry_run:
+            return request.to_payload()
+        return client.authentication_web_login(request)
 
     def _relogin_or_preview(
         self,
@@ -189,6 +203,31 @@ class DahCli:
             "access",
             help="GET /organization/v1/access",
             description="Fetch organization access data.",
+        )
+
+        login_parser = subparsers.add_parser(
+            "authentication-web-login",
+            help="POST /authentication/web/login",
+            description="Authenticate through the DAH web login endpoint.",
+        )
+        login_parser.add_argument(
+            "--client-id",
+            default="DAH_CLIENT_WEB",
+            help="Client id value. Defaults to DAH_CLIENT_WEB.",
+        )
+        login_parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Print the login request body without sending it.",
+        )
+        login_body_group = login_parser.add_mutually_exclusive_group()
+        login_body_group.add_argument(
+            "--body",
+            help="Inline JSON body to send to the endpoint.",
+        )
+        login_body_group.add_argument(
+            "--body-file",
+            help="Path to a JSON file containing the request body.",
         )
 
         relogin_parser = subparsers.add_parser(
@@ -514,9 +553,14 @@ class DahCli:
         return parser
 
     def _build_config(self, args: argparse.Namespace) -> DahApiConfig:
-        token = os.getenv("DAH_BEARER_TOKEN")
+        auth_command = args.command in {
+            "authentication-relogin",
+            "authentication-web-login",
+        }
+        token = os.getenv("DAH_BEARER_TOKEN", "")
         if not token:
-            raise SystemExit(MISSING_BEARER_TOKEN_MESSAGE)
+            if not auth_command:
+                raise SystemExit(MISSING_BEARER_TOKEN_MESSAGE)
         return DahApiConfig(
             token=token,
             base_url=args.base_url,
@@ -525,6 +569,7 @@ class DahCli:
             referer=args.referer,
             user_agent=args.user_agent,
             timeout=args.timeout,
+            require_token=not auth_command,
         )
 
     def _build_publications_request(
@@ -538,6 +583,22 @@ class DahCli:
             page=args.page,
             size=args.size,
             payload=load_payload(args, payload),
+        )
+
+    def _build_authentication_web_login_request(
+        self,
+        args: argparse.Namespace,
+    ) -> AuthenticationWebLoginRequest:
+        default_payload = AuthenticationWebLoginRequest(
+            login=os.getenv("DAH_LOGIN", ""),
+            password=os.getenv("DAH_PASSWORD", ""),
+            client_id=args.client_id,
+        ).to_payload()
+        payload = load_payload(args, default_payload)
+        return AuthenticationWebLoginRequest(
+            login=str(payload.get("login", "")),
+            password=str(payload.get("password", "")),
+            client_id=str(payload.get("clientId", "DAH_CLIENT_WEB")),
         )
 
     def _build_authentication_relogin_request(

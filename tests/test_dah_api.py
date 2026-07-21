@@ -87,6 +87,7 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
         isinstance(cfg.ssl_context, ssl.SSLContext),
         (bill["date"], bill["debtFilterAccruals"], bill["debtFilterMonths"]),
         dah_api.PublicationsSearchRequest().payload,
+        dah_api.AuthenticationWebLoginRequest("login", "password").to_payload(),
         dah_api.AuthenticationReloginRequest("refresh", "device").to_payload(),
         dah_api.FeedbackOrderListRequest().payload,
         dah_api.FeedbackOrderStatusRequest("order-id").to_payload(),
@@ -111,6 +112,11 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
         True,
         ("2026-07-08T15:10", 4, 0),
         {"statuses": ["PUBLISHED"]},
+        {
+            "clientId": "DAH_CLIENT_WEB",
+            "login": "login",
+            "password": "password",
+        },
         {
             "clientId": "DAH_CLIENT_WEB",
             "clientType": "WEB",
@@ -178,6 +184,9 @@ def test_association_resolution_errors(access):
 
 def test_endpoint_requests():
     client = RecordingClient()
+    client.authentication_web_login(
+        dah_api.AuthenticationWebLoginRequest("login", "password")
+    )
     client.search_publications(dah_api.PublicationsSearchRequest(page=1, size=2))
     client.authentication_relogin(
         dah_api.AuthenticationReloginRequest("refresh", "device")
@@ -217,6 +226,7 @@ def test_endpoint_requests():
     )
 
     assert [call["path"] for call in client.calls] == [
+        "/authentication/web/login",
         "/organization/v1/access",
         "/publications/search",
         "/authentication/relogin",
@@ -232,17 +242,23 @@ def test_endpoint_requests():
         "/messenger/messages",
     ]
     assert (
-        client.calls[1]["query"],
-        client.calls[1]["payload"]["associationId"],
-        client.calls[2]["payload"],
-        client.calls[4]["payload"],
+        client.calls[0]["payload"],
+        client.calls[2]["query"],
+        client.calls[2]["payload"]["associationId"],
+        client.calls[3]["payload"],
         client.calls[5]["payload"],
         client.calls[6]["payload"],
-        client.calls[6]["tab_id"],
-        client.calls[8]["payload"],
-        client.calls[9]["query"],
-        client.calls[12]["payload"],
+        client.calls[7]["payload"],
+        client.calls[7]["tab_id"],
+        client.calls[9]["payload"],
+        client.calls[10]["query"],
+        client.calls[13]["payload"],
     ) == (
+        {
+            "clientId": "DAH_CLIENT_WEB",
+            "login": "login",
+            "password": "password",
+        },
         {"page": 1, "size": 2},
         "assoc-id",
         {
@@ -319,6 +335,20 @@ def test_build_request_without_body():
         headers["x-dah-tabid"],
         headers.get("content-type"),
     ) == ("https://api.dah-online.com/plain", None, "manual-tab", None)
+
+
+def test_build_request_without_token():
+    request = dah_api.DahApiClient(
+        dah_api.DahApiConfig(require_token=False)
+    )._build_request(
+        method="POST",
+        path="/authentication/web/login",
+        query=None,
+        payload={},
+        tab_id=None,
+    )
+    headers = {key.lower(): value for key, value in request.header_items()}
+    assert "authorization" not in headers
 
 
 def test_request_json_errors(monkeypatch):

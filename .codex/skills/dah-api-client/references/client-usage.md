@@ -36,6 +36,8 @@ Supported environment variables:
 - `DAH_BASE_URL`: API base URL, default `https://api.dah-online.com`.
 - `DAH_BEARER_TOKEN`: bearer token. Required by default for live API calls.
 - `DAH_REFRESH_TOKEN`: optional refresh token for `authentication-relogin`.
+- `DAH_LOGIN`: optional login for `authentication-web-login`.
+- `DAH_PASSWORD`: optional password for `authentication-web-login`.
 - `DAH_ASSOCIATION_ID`: optional association id override. When absent, scoped endpoints resolve the single available id from `get_access`.
 - `DAH_TAB_ID`: optional `X-DAH-TabId` header.
 - `DAH_DEVICE_ID`: optional device id for `authentication-relogin`.
@@ -46,7 +48,8 @@ Supported environment variables:
 - `SSL_CERT_FILE`: optional custom CA bundle path. When unset, the client uses
   `certifi` for TLS certificate verification.
 
-Never print bearer or refresh tokens. Avoid committing newly captured tokens.
+Never print bearer tokens, refresh tokens, logins, or passwords. Avoid
+committing newly captured credentials.
 
 When using `.env.local`, keep entries as plain `KEY=value` lines. The local
 loader ignores blank lines and comments, and it does not implement shell syntax
@@ -63,6 +66,7 @@ from dah_api import (
     DahHttpError,
     DahRequestError,
     AuthenticationReloginRequest,
+    AuthenticationWebLoginRequest,
     BillDebtAnalyticsRequest,
     FeedbackOrderListRequest,
     FeedbackOrderStatusRequest,
@@ -78,6 +82,12 @@ from dah_api import (
 client = DahApiClient(DahApiConfig.from_env())
 
 try:
+    login = client.authentication_web_login(
+        AuthenticationWebLoginRequest(
+            login="<login>",
+            password="<password>",
+        )
+    )
     access = client.get_access()
     relogin = client.authentication_relogin(
         AuthenticationReloginRequest(
@@ -138,6 +148,7 @@ Run commands from the repository root.
 
 ```bash
 python3 main.py access
+python3 main.py authentication-web-login --dry-run
 python3 main.py authentication-relogin --device-id "$DAH_DEVICE_ID" --dry-run
 python3 main.py publications-search --page 0 --size 5
 python3 main.py publications-search --body '{"associationId":"<association id>","statuses":["PUBLISHED"]}'
@@ -166,6 +177,26 @@ Common flags:
 ```text
 GET /organization/v1/access
 ```
+
+`DahApiClient.authentication_web_login()` calls:
+
+```text
+POST /authentication/web/login
+```
+
+Default login payload:
+
+```json
+{
+  "clientId": "DAH_CLIENT_WEB",
+  "login": "<login>",
+  "password": "<password>"
+}
+```
+
+Use `DAH_LOGIN` and `DAH_PASSWORD`, or pass a JSON body/body file. Treat both
+values as credentials and avoid putting real values in committed files or shell
+history.
 
 `DahApiClient.authentication_relogin()` calls:
 
