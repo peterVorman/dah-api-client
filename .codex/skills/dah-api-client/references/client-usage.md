@@ -95,6 +95,7 @@ try:
             device_id="<device id>",
         )
     )
+    exit_response = client.authentication_exit()
     publications = client.search_publications(PublicationsSearchRequest(page=0, size=5))
     publication = client.get_publication("<publication id>")
     saved_publication = client.save_publication(
@@ -150,6 +151,7 @@ Run commands from the repository root.
 python3 main.py access
 python3 main.py authentication-web-login --dry-run
 python3 main.py authentication-relogin --device-id "$DAH_DEVICE_ID" --dry-run
+python3 main.py authentication-exit
 python3 main.py publications-search --page 0 --size 5
 python3 main.py publications-search --body '{"associationId":"<association id>","statuses":["PUBLISHED"]}'
 python3 main.py publications-search --body-file request.json --compact
@@ -218,6 +220,12 @@ Default relogin payload:
 Use `DAH_REFRESH_TOKEN` and `DAH_DEVICE_ID`, or pass a JSON body/body file.
 Treat `refreshToken` as a credential and avoid putting real values in committed
 files or shell history.
+
+`DahApiClient.authentication_exit()` calls:
+
+```text
+GET /authentication/exit
+```
 
 `DahApiClient.search_publications()` calls:
 

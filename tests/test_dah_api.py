@@ -191,6 +191,7 @@ def test_endpoint_requests():
     client.authentication_relogin(
         dah_api.AuthenticationReloginRequest("refresh", "device")
     )
+    client.authentication_exit()
     client.get_publication("publication/id")
     client.save_publication(dah_api.PublicationSaveRequest({"title": "New"}))
     client.save_publication(
@@ -230,6 +231,7 @@ def test_endpoint_requests():
         "/organization/v1/access",
         "/publications/search",
         "/authentication/relogin",
+        "/authentication/exit",
         "/publications/get/publication%2Fid",
         "/publications/v2/add/web",
         "/publications/v2/edit/web",
@@ -246,13 +248,15 @@ def test_endpoint_requests():
         client.calls[2]["query"],
         client.calls[2]["payload"]["associationId"],
         client.calls[3]["payload"],
-        client.calls[5]["payload"],
+        client.calls[4]["method"],
+        client.calls[5]["method"],
         client.calls[6]["payload"],
         client.calls[7]["payload"],
-        client.calls[7]["tab_id"],
-        client.calls[9]["payload"],
-        client.calls[10]["query"],
-        client.calls[13]["payload"],
+        client.calls[8]["payload"],
+        client.calls[8]["tab_id"],
+        client.calls[10]["payload"],
+        client.calls[11]["query"],
+        client.calls[14]["payload"],
     ) == (
         {
             "clientId": "DAH_CLIENT_WEB",
@@ -267,6 +271,8 @@ def test_endpoint_requests():
             "deviceId": "device",
             "refreshToken": "refresh",
         },
+        "GET",
+        "GET",
         {"associationId": "assoc-id", "title": "New"},
         {"associationId": "assoc-id", "id": "publication-id", "title": "Edited"},
         {"debt": True},

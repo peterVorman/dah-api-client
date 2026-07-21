@@ -33,6 +33,9 @@ class FakeClient:
     def authentication_relogin(self, request):
         return self.record("authentication-relogin", request)
 
+    def authentication_exit(self):
+        return self.record("authentication-exit")
+
     def search_publications(self, request):
         return self.record("publications-search", request)
 
@@ -135,6 +138,11 @@ def single(argv, response, call, attrs=(), request=None, env=None):
 
 CASES = [
     single(args("--compact access"), {"method": "access"}, "access"),
+    single(
+        args("authentication-exit"),
+        {"method": "authentication-exit"},
+        "authentication-exit",
+    ),
     case(
         args("authentication-web-login --dry-run"),
         {"clientId": "DAH_CLIENT_WEB", "login": "login", "password": "password"},

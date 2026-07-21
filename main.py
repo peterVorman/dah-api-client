@@ -59,6 +59,7 @@ class DahCli:
                 "authentication-relogin": lambda: self._relogin_or_preview(
                     args, client
                 ),
+                "authentication-exit": client.authentication_exit,
                 "publications-search": lambda: client.search_publications(
                     self._build_publications_request(args)
                 ),
@@ -263,6 +264,12 @@ class DahCli:
         relogin_body_group.add_argument(
             "--body-file",
             help="Path to a JSON file containing the request body.",
+        )
+
+        subparsers.add_parser(
+            "authentication-exit",
+            help="GET /authentication/exit",
+            description="Exit the current DAH authenticated session.",
         )
 
         publications_parser = subparsers.add_parser(

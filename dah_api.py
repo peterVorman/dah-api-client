@@ -285,6 +285,13 @@ class DahApiClient:
             tab_id=tab_id,
         )
 
+    def authentication_exit(self, *, tab_id: str | None = None) -> Any:
+        return self.request_json(
+            method="GET",
+            path="/authentication/exit",
+            tab_id=tab_id,
+        )
+
     def search_publications(
         self,
         request: PublicationsSearchRequest | None = None,
