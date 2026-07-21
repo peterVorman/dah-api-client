@@ -17,6 +17,7 @@ from dah_api import (
     DEFAULT_REFERER,
     DEFAULT_USER_AGENT,
     MISSING_BEARER_TOKEN_MESSAGE,
+    AuthenticationReloginRequest,
     BillDebtAnalyticsRequest,
     DahApiClient,
     DahApiConfig,
@@ -51,6 +52,9 @@ class DahCli:
         try:
             handlers = {
                 "access": client.get_access,
+                "authentication-relogin": lambda: self._relogin_or_preview(
+                    args, client
+                ),
                 "publications-search": lambda: client.search_publications(
                     self._build_publications_request(args)
                 ),
@@ -107,6 +111,16 @@ class DahCli:
         if args.dry_run:
             return request.to_payload()
         return client.update_feedback_order_status(request)
+
+    def _relogin_or_preview(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> Any:
+        request = self._build_authentication_relogin_request(args)
+        if args.dry_run:
+            return request.to_payload()
+        return client.authentication_relogin(request)
 
     def _save_or_preview_publication(
         self,
@@ -175,6 +189,41 @@ class DahCli:
             "access",
             help="GET /organization/v1/access",
             description="Fetch organization access data.",
+        )
+
+        relogin_parser = subparsers.add_parser(
+            "authentication-relogin",
+            help="POST /authentication/relogin",
+            description="Refresh DAH authentication through the relogin endpoint.",
+        )
+        relogin_parser.add_argument(
+            "--device-id",
+            default=os.getenv("DAH_DEVICE_ID"),
+            help="Device id. Defaults to DAH_DEVICE_ID when set.",
+        )
+        relogin_parser.add_argument(
+            "--client-id",
+            default="DAH_CLIENT_WEB",
+            help="Client id value. Defaults to DAH_CLIENT_WEB.",
+        )
+        relogin_parser.add_argument(
+            "--client-type",
+            default="WEB",
+            help="Client type value. Defaults to WEB.",
+        )
+        relogin_parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Print the relogin request body without sending it.",
+        )
+        relogin_body_group = relogin_parser.add_mutually_exclusive_group()
+        relogin_body_group.add_argument(
+            "--body",
+            help="Inline JSON body to send to the endpoint.",
+        )
+        relogin_body_group.add_argument(
+            "--body-file",
+            help="Path to a JSON file containing the request body.",
         )
 
         publications_parser = subparsers.add_parser(
@@ -489,6 +538,24 @@ class DahCli:
             page=args.page,
             size=args.size,
             payload=load_payload(args, payload),
+        )
+
+    def _build_authentication_relogin_request(
+        self,
+        args: argparse.Namespace,
+    ) -> AuthenticationReloginRequest:
+        default_payload = AuthenticationReloginRequest(
+            refresh_token=os.getenv("DAH_REFRESH_TOKEN", ""),
+            device_id=args.device_id,
+            client_id=args.client_id,
+            client_type=args.client_type,
+        ).to_payload()
+        payload = load_payload(args, default_payload)
+        return AuthenticationReloginRequest(
+            refresh_token=str(payload.get("refreshToken", "")),
+            device_id=payload.get("deviceId"),
+            client_id=str(payload.get("clientId", "DAH_CLIENT_WEB")),
+            client_type=str(payload.get("clientType", "WEB")),
         )
 
     def _build_bill_debt_analytics_request(

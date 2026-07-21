@@ -35,8 +35,10 @@ Supported environment variables:
 
 - `DAH_BASE_URL`: API base URL, default `https://api.dah-online.com`.
 - `DAH_BEARER_TOKEN`: bearer token. Required by default for live API calls.
+- `DAH_REFRESH_TOKEN`: optional refresh token for `authentication-relogin`.
 - `DAH_ASSOCIATION_ID`: optional association id override. When absent, scoped endpoints resolve the single available id from `get_access`.
 - `DAH_TAB_ID`: optional `X-DAH-TabId` header.
+- `DAH_DEVICE_ID`: optional device id for `authentication-relogin`.
 - `DAH_ORIGIN`: Origin header, default `https://cabinet.dah-online.com`.
 - `DAH_REFERER`: Referer header, default `https://cabinet.dah-online.com/`.
 - `DAH_USER_AGENT`: User-Agent header.
@@ -44,7 +46,7 @@ Supported environment variables:
 - `SSL_CERT_FILE`: optional custom CA bundle path. When unset, the client uses
   `certifi` for TLS certificate verification.
 
-Never print the bearer token. Avoid committing newly captured tokens.
+Never print bearer or refresh tokens. Avoid committing newly captured tokens.
 
 When using `.env.local`, keep entries as plain `KEY=value` lines. The local
 loader ignores blank lines and comments, and it does not implement shell syntax
@@ -60,6 +62,7 @@ from dah_api import (
     DahApiConfig,
     DahHttpError,
     DahRequestError,
+    AuthenticationReloginRequest,
     BillDebtAnalyticsRequest,
     FeedbackOrderListRequest,
     FeedbackOrderStatusRequest,
@@ -76,6 +79,12 @@ client = DahApiClient(DahApiConfig.from_env())
 
 try:
     access = client.get_access()
+    relogin = client.authentication_relogin(
+        AuthenticationReloginRequest(
+            refresh_token="<refresh token>",
+            device_id="<device id>",
+        )
+    )
     publications = client.search_publications(PublicationsSearchRequest(page=0, size=5))
     publication = client.get_publication("<publication id>")
     saved_publication = client.save_publication(
@@ -129,6 +138,7 @@ Run commands from the repository root.
 
 ```bash
 python3 main.py access
+python3 main.py authentication-relogin --device-id "$DAH_DEVICE_ID" --dry-run
 python3 main.py publications-search --page 0 --size 5
 python3 main.py publications-search --body '{"associationId":"<association id>","statuses":["PUBLISHED"]}'
 python3 main.py publications-search --body-file request.json --compact
@@ -156,6 +166,27 @@ Common flags:
 ```text
 GET /organization/v1/access
 ```
+
+`DahApiClient.authentication_relogin()` calls:
+
+```text
+POST /authentication/relogin
+```
+
+Default relogin payload:
+
+```json
+{
+  "clientId": "DAH_CLIENT_WEB",
+  "clientType": "WEB",
+  "deviceId": "<device id>",
+  "refreshToken": "<refresh token>"
+}
+```
+
+Use `DAH_REFRESH_TOKEN` and `DAH_DEVICE_ID`, or pass a JSON body/body file.
+Treat `refreshToken` as a credential and avoid putting real values in committed
+files or shell history.
 
 `DahApiClient.search_publications()` calls:
 

@@ -31,8 +31,8 @@ DAH responses may contain personal, financial, association-confidential, or chat
 data. Keep those records out of public issues, pull requests, logs, screenshots,
 fixtures, and commits unless they are intentionally sanitized.
 
-Never publish bearer tokens, session data, exported DAH reports, account IDs,
-chat content, or raw API responses from real associations.
+Never publish bearer or refresh tokens, session data, exported DAH reports,
+account IDs, chat content, or raw API responses from real associations.
 
 ## Usage
 

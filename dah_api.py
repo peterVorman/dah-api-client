@@ -131,6 +131,24 @@ class PublicationsSearchRequest:
 
 
 @dataclass(slots=True)
+class AuthenticationReloginRequest:
+    refresh_token: str = ""
+    device_id: str | None = None
+    client_id: str = "DAH_CLIENT_WEB"
+    client_type: str = "WEB"
+
+    def to_payload(self) -> dict[str, Any]:
+        payload = {
+            "clientId": self.client_id,
+            "clientType": self.client_type,
+            "refreshToken": self.refresh_token,
+        }
+        if self.device_id:
+            payload["deviceId"] = self.device_id
+        return payload
+
+
+@dataclass(slots=True)
 class PublicationSaveRequest:
     payload: dict[str, Any]
 
@@ -221,6 +239,20 @@ class DahApiClient:
         return self.request_json(
             method="GET",
             path="/organization/v1/access",
+            tab_id=tab_id,
+        )
+
+    def authentication_relogin(
+        self,
+        request: AuthenticationReloginRequest | None = None,
+        *,
+        tab_id: str | None = None,
+    ) -> Any:
+        relogin_request = request or AuthenticationReloginRequest()
+        return self.request_json(
+            method="POST",
+            path="/authentication/relogin",
+            payload=relogin_request.to_payload(),
             tab_id=tab_id,
         )
 

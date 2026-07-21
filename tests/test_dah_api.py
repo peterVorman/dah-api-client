@@ -87,6 +87,7 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
         isinstance(cfg.ssl_context, ssl.SSLContext),
         (bill["date"], bill["debtFilterAccruals"], bill["debtFilterMonths"]),
         dah_api.PublicationsSearchRequest().payload,
+        dah_api.AuthenticationReloginRequest("refresh", "device").to_payload(),
         dah_api.FeedbackOrderListRequest().payload,
         dah_api.FeedbackOrderStatusRequest("order-id").to_payload(),
         dah_api.MessengerGroupMessagesRequest("g").payload,
@@ -110,6 +111,12 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
         True,
         ("2026-07-08T15:10", 4, 0),
         {"statuses": ["PUBLISHED"]},
+        {
+            "clientId": "DAH_CLIENT_WEB",
+            "clientType": "WEB",
+            "deviceId": "device",
+            "refreshToken": "refresh",
+        },
         {},
         {"status": "DONE"},
         {},
@@ -172,6 +179,9 @@ def test_association_resolution_errors(access):
 def test_endpoint_requests():
     client = RecordingClient()
     client.search_publications(dah_api.PublicationsSearchRequest(page=1, size=2))
+    client.authentication_relogin(
+        dah_api.AuthenticationReloginRequest("refresh", "device")
+    )
     client.get_publication("publication/id")
     client.save_publication(dah_api.PublicationSaveRequest({"title": "New"}))
     client.save_publication(
@@ -209,6 +219,7 @@ def test_endpoint_requests():
     assert [call["path"] for call in client.calls] == [
         "/organization/v1/access",
         "/publications/search",
+        "/authentication/relogin",
         "/publications/get/publication%2Fid",
         "/publications/v2/add/web",
         "/publications/v2/edit/web",
@@ -223,16 +234,23 @@ def test_endpoint_requests():
     assert (
         client.calls[1]["query"],
         client.calls[1]["payload"]["associationId"],
-        client.calls[3]["payload"],
+        client.calls[2]["payload"],
         client.calls[4]["payload"],
         client.calls[5]["payload"],
-        client.calls[5]["tab_id"],
-        client.calls[7]["payload"],
-        client.calls[8]["query"],
-        client.calls[11]["payload"],
+        client.calls[6]["payload"],
+        client.calls[6]["tab_id"],
+        client.calls[8]["payload"],
+        client.calls[9]["query"],
+        client.calls[12]["payload"],
     ) == (
         {"page": 1, "size": 2},
         "assoc-id",
+        {
+            "clientId": "DAH_CLIENT_WEB",
+            "clientType": "WEB",
+            "deviceId": "device",
+            "refreshToken": "refresh",
+        },
         {"associationId": "assoc-id", "title": "New"},
         {"associationId": "assoc-id", "id": "publication-id", "title": "Edited"},
         {"debt": True},

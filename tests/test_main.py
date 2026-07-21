@@ -27,6 +27,9 @@ class FakeClient:
             raise type(self).access_error
         return self.record("access")
 
+    def authentication_relogin(self, request):
+        return self.record("authentication-relogin", request)
+
     def search_publications(self, request):
         return self.record("publications-search", request)
 
@@ -84,6 +87,7 @@ def cli_env(monkeypatch):
     monkeypatch.setenv("DAH_BEARER_TOKEN", "unit-token")
     monkeypatch.delenv("DAH_ASSOCIATION_ID", raising=False)
     monkeypatch.delenv("DAH_MESSENGER_GROUP_ID", raising=False)
+    monkeypatch.delenv("DAH_REFRESH_TOKEN", raising=False)
 
 
 def run_cli(argv, capsys):
@@ -126,6 +130,34 @@ def single(argv, response, call, attrs=(), request=None, env=None):
 
 CASES = [
     single(args("--compact access"), {"method": "access"}, "access"),
+    case(
+        args("authentication-relogin --device-id device --dry-run"),
+        {
+            "clientId": "DAH_CLIENT_WEB",
+            "clientType": "WEB",
+            "deviceId": "device",
+            "refreshToken": "refresh",
+        },
+        None,
+        calls=[],
+        env={"DAH_REFRESH_TOKEN": "refresh"},
+    ),
+    single(
+        args(
+            "authentication-relogin --body "
+            '\'{"clientId":"DAH_CLIENT_WEB","clientType":"WEB",'
+            '"deviceId":"device","refreshToken":"refresh"}\''
+        ),
+        {"method": "authentication-relogin"},
+        "authentication-relogin",
+        ("client_id", "client_type", "device_id", "refresh_token"),
+        {
+            "client_id": "DAH_CLIENT_WEB",
+            "client_type": "WEB",
+            "device_id": "device",
+            "refresh_token": "refresh",
+        },
+    ),
     single(
         args('publications-search --page 2 --size 3 --body \'{"statuses":["DRAFT"]}\''),
         {"method": "publications-search"},
