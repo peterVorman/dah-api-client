@@ -37,6 +37,11 @@ from dah_api import (
     default_bill_debt_analytics_payload,
     load_env_file,
 )
+from debtor_notifications import (
+    DEFAULT_DEBTOR_MESSAGE_TEMPLATE,
+    DebtorNotificationRequest,
+    DebtorNotificationService,
+)
 
 MISSING_MESSENGER_GROUP_ID_MESSAGE = (
     "Missing messenger group id. Set DAH_MESSENGER_GROUP_ID or pass --group-id."
@@ -71,6 +76,9 @@ class DahCli:
                 ),
                 "bill-debt-analytics": lambda: client.get_bill_debt_analytics(
                     self._build_bill_debt_analytics_request(args)
+                ),
+                "debtors-notify": lambda: DebtorNotificationService(client).run(
+                    self._build_debtor_notification_request(args)
                 ),
                 "feedback-order-list": lambda: client.list_feedback_orders(
                     self._build_feedback_order_list_request(args)
@@ -374,6 +382,62 @@ class DahCli:
         debt_body_group.add_argument(
             "--body-file",
             help="Path to a JSON file containing the request body.",
+        )
+
+        notify_parser = subparsers.add_parser(
+            "debtors-notify",
+            help="Notify debtors through DAH personal messenger chats.",
+            description=(
+                "Build or send direct DAH messenger notifications for debtors. "
+                "Defaults to dry-run preview; use --send to write."
+            ),
+        )
+        notify_parser.add_argument(
+            "--association-id",
+            default=os.getenv("DAH_ASSOCIATION_ID"),
+            help=(
+                "Association id path parameter. Defaults to DAH_ASSOCIATION_ID "
+                "or a single id resolved from get_access."
+            ),
+        )
+        notify_parser.add_argument(
+            "--date",
+            help=(
+                "Report date in YYYY-MM-DDTHH:MM. Defaults to the current local minute."
+            ),
+        )
+        notify_parser.add_argument(
+            "--debt-filter-accruals",
+            type=int,
+            default=1,
+            help="Value for debtFilterAccruals in the default debt request body.",
+        )
+        notify_parser.add_argument(
+            "--min-debt",
+            type=float,
+            default=0,
+            help="Minimum debt amount to include. Defaults to 0.",
+        )
+        notify_parser.add_argument(
+            "--limit",
+            type=int,
+            help="Maximum number of ready notifications to include.",
+        )
+        notify_parser.add_argument(
+            "--apartment-number",
+            action="append",
+            default=[],
+            help="Exact apartment number to include. Can be passed multiple times.",
+        )
+        notify_parser.add_argument(
+            "--message-template",
+            default=DEFAULT_DEBTOR_MESSAGE_TEMPLATE,
+            help="Message template with {apartment_label} and {debt}.",
+        )
+        notify_parser.add_argument(
+            "--send",
+            action="store_true",
+            help="Actually send messages. Omit for dry-run preview.",
         )
 
         feedback_order_parser = subparsers.add_parser(
@@ -710,6 +774,21 @@ class DahCli:
                 args,
                 {},
             ),
+        )
+
+    def _build_debtor_notification_request(
+        self,
+        args: argparse.Namespace,
+    ) -> DebtorNotificationRequest:
+        return DebtorNotificationRequest(
+            association_id=args.association_id,
+            date=args.date,
+            debt_filter_accruals=args.debt_filter_accruals,
+            min_debt=args.min_debt,
+            limit=args.limit,
+            apartment_numbers=args.apartment_number,
+            message_template=args.message_template,
+            send=args.send,
         )
 
     def _build_apartment_list_request(

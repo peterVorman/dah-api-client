@@ -11,6 +11,8 @@ from dah_api import DahHttpError, DahRequestError
 class FakeClient:
     instances = []
     access_error = None
+    debt_response = None
+    apartment_response = None
     groups_pages = [{"content": [{"id": "chat-id", "name": "2 підʼїзд"}], "last": True}]
 
     def __init__(self, config):
@@ -49,6 +51,9 @@ class FakeClient:
         return "assoc-id"
 
     def get_bill_debt_analytics(self, request):
+        if type(self).debt_response is not None:
+            self.calls.append(("bill-debt-analytics", request))
+            return type(self).debt_response
         return self.record("bill-debt-analytics", request)
 
     def list_feedback_orders(self, request):
@@ -58,6 +63,9 @@ class FakeClient:
         return self.record("feedback-order-status", request)
 
     def list_apartments(self, request):
+        if type(self).apartment_response is not None:
+            self.calls.append(("apartment-list", request))
+            return type(self).apartment_response
         return self.record("apartment-list", request)
 
     def list_money_transaction_bank(self, request):
@@ -105,6 +113,8 @@ class PersonalGroupClient:
 def cli_env(monkeypatch):
     FakeClient.instances = []
     FakeClient.access_error = None
+    FakeClient.debt_response = None
+    FakeClient.apartment_response = None
     FakeClient.groups_pages = [
         {"content": [{"id": "chat-id", "name": "2 підʼїзд"}], "last": True}
     ]
@@ -464,6 +474,40 @@ def test_cli_errors_payloads_and_main(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli, "DahCli", ExitCli)
     assert cli.main() == 7
+
+
+def test_cli_debtors_notify(cli_env, capsys):
+    FakeClient.debt_response = {
+        "rows": [{"apartmentName": "Квартира 55", "endBalance": -4203.9}]
+    }
+    FakeClient.apartment_response = {
+        "content": [
+            {
+                "number": "55",
+                "owners": [
+                    {"user": {"userId": "user-id", "userStatus": "ACTIVE"}}
+                ],
+            }
+        ],
+        "last": True,
+    }
+
+    status, response, _, client = run_cli(
+        args("debtors-notify --association-id assoc-id --apartment-number 55"),
+        capsys,
+    )
+
+    assert (
+        status,
+        response["mode"],
+        response["ready"][0]["apartment"],
+        [name for name, _ in client.calls],
+    ) == (
+        0,
+        "dry-run",
+        "55",
+        ["apartment-list", "bill-debt-analytics"],
+    )
 
 
 def test_messenger_group_resolver():

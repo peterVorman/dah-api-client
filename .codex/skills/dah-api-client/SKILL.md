@@ -1,6 +1,6 @@
 ---
 name: dah-api-client
-description: Work with the DAH cabinet API through the local Python client in the current repository. Use when Codex needs to query DAH/Dah Online API data, call organization access, apartment list, web login, relogin, or exit authentication, search/get/create/edit publications, accounting bill debt analytics, feedback order list, bank money transaction list, messenger groups page, messenger personal group get, messenger group messages, or send messenger message endpoints, inspect DAH API responses, create small API scripts, or extend the existing dah_api.py client and main.py CLI instead of writing a separate HTTP client.
+description: Work with the DAH cabinet API through the local Python client in the current repository. Use when Codex needs to query DAH/Dah Online API data, call organization access, apartment list, web login, relogin, or exit authentication, search/get/create/edit publications, accounting bill debt analytics, debtor notification workflow, feedback order list, bank money transaction list, messenger groups page, messenger personal group get, messenger group messages, or send messenger message endpoints, inspect DAH API responses, create small API scripts, or extend the existing dah_api.py client and main.py CLI instead of writing a separate HTTP client.
 ---
 
 # DAH API Client
@@ -37,7 +37,7 @@ authorized operation.
 For local code changes, run the narrowest useful check first:
 
 ```bash
-python3 -m py_compile dah_api.py main.py
+python3 -m py_compile dah_api.py debtor_notifications.py main.py
 ```
 
 ## Quality Gates
@@ -46,14 +46,14 @@ Before finishing changes to `dah_api.py`, `main.py`, tests, or CLI behavior, run
 the project gates with the active Python environment:
 
 ```bash
-python -m py_compile dah_api.py main.py
+python -m py_compile dah_api.py debtor_notifications.py main.py
 python -m pytest
 python -m ruff check .
 python -m flake8
 python -m isort --check-only .
 python -m bandit -q -r .
-python -m radon cc -s -a dah_api.py main.py tests
-python -m radon cc -s -n B dah_api.py main.py tests
+python -m radon cc -s -a dah_api.py debtor_notifications.py main.py tests
+python -m radon cc -s -n B dah_api.py debtor_notifications.py main.py tests
 ```
 
 Treat any output from the final `radon -n B` command as a failure: complexity

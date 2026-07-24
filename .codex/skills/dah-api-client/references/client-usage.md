@@ -60,6 +60,7 @@ If a live request returns `401 Unauthorized`, first assume the active token is e
 ## Python Quick Start
 
 ```python
+from debtor_notifications import DebtorNotificationRequest, DebtorNotificationService
 from dah_api import (
     ApartmentListRequest,
     DahApiClient,
@@ -119,6 +120,12 @@ try:
             payload=default_bill_debt_analytics_payload(date="2026-07-08T15:10"),
         )
     )
+    debtor_notifications = DebtorNotificationService(client).run(
+        DebtorNotificationRequest(
+            min_debt=3000,
+            apartment_numbers=["55"],
+        )
+    )
     feedback_orders = client.list_feedback_orders(FeedbackOrderListRequest())
     closed_order = client.update_feedback_order_status(
         FeedbackOrderStatusRequest(
@@ -164,6 +171,8 @@ python3 main.py publications-search --body-file request.json --compact
 python3 main.py publication-get '<publication id>'
 python3 main.py publication-save --body-file publication.json --dry-run
 python3 main.py bill-debt-analytics --date 2026-07-08T15:10 --debt-filter-accruals 1
+python3 main.py debtors-notify --min-debt 3000 --limit 10
+python3 main.py debtors-notify --apartment-number 55 --send
 python3 main.py feedback-order-list
 python3 main.py feedback-order-status '<feedback order id>' --status DONE --dry-run
 python3 main.py apartment-list --page 0 --size 50
@@ -350,6 +359,25 @@ Message body:
 
 Use `python3 main.py messenger-send-message --chat-name '<exact chat name>' --dry-run '<message>'` to resolve a chat by exact name and preview the body before sending.
 Use `python3 main.py messenger-send-message --interlocutor-id '<owner user id>' --dry-run '<message>'` to resolve a personal chat from an exact owner user id.
+
+## Debtor Notifications
+
+`python3 main.py debtors-notify` builds individual DAH messenger notifications
+from bill debt analytics and apartment owner data.
+
+The workflow is:
+
+1. Fetch bill debt analytics with the requested `debtFilterAccruals`.
+2. Fetch apartments through `list_apartments()`.
+3. Match each debtor to an apartment by exact apartment `number`.
+4. Use active `owners[].user.userId` values only.
+5. Resolve each personal group with `get_messenger_personal_group()`.
+6. Send with `send_messenger_message()` only when `--send` is explicitly passed.
+
+The command defaults to dry-run preview and returns `ready`, `sent`, and
+`skipped` arrays. It does not print owner names, phone numbers, or raw user ids.
+Use `--apartment-number` multiple times to target exact apartments, `--min-debt`
+to filter small debts, and `--limit` to cap the ready notifications.
 
 Default publications payload:
 

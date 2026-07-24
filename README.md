@@ -56,14 +56,14 @@ so a manual `SSL_CERT_FILE` export is not required for normal use.
 ## Quality Checks
 
 ```bash
-python -m py_compile dah_api.py main.py
+python -m py_compile dah_api.py debtor_notifications.py main.py
 python -m pytest
 python -m ruff check .
 python -m flake8
 python -m isort --check-only .
 python -m bandit -q -r .
-python -m radon cc -s -a dah_api.py main.py tests
-python -m radon cc -s -n B dah_api.py main.py tests
+python -m radon cc -s -a dah_api.py debtor_notifications.py main.py tests
+python -m radon cc -s -n B dah_api.py debtor_notifications.py main.py tests
 ```
 
 Any output from the final `radon -n B` command should be treated as a failure.
