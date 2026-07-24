@@ -1,0 +1,22 @@
+{
+  "include": [
+    "dah_api.py",
+    "auth_session.py",
+    "debtor_notifications.py",
+    "main.py",
+    "tests"
+  ],
+  "exclude": [
+    ".git",
+    ".venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.13",
+  "typeCheckingMode": "off",
+  "reportMissingImports": "none",
+  "reportUnreachable": "error"
+}

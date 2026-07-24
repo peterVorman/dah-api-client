@@ -61,6 +61,9 @@ python -m pytest
 python -m ruff check .
 python -m flake8
 python -m isort --check-only .
+python -m pylint dah_api.py auth_session.py debtor_notifications.py main.py tests
+python -m pyright
+python -m vulture dah_api.py auth_session.py debtor_notifications.py main.py tests --min-confidence 100 --ignore-names cli_env
 python -m bandit -q -r .
 python -m radon cc -s -a dah_api.py auth_session.py debtor_notifications.py main.py tests
 python -m radon cc -s -n B dah_api.py auth_session.py debtor_notifications.py main.py tests

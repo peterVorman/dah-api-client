@@ -516,8 +516,18 @@ python3 -m pytest
 python3 -m ruff check .
 python3 -m flake8
 python3 -m isort --check-only .
+python3 -m pylint dah_api.py auth_session.py debtor_notifications.py main.py tests
+python3 -m pyright
+python3 -m vulture dah_api.py auth_session.py debtor_notifications.py main.py tests --min-confidence 100 --ignore-names cli_env
 python3 -m bandit -q -r .
 python3 -m radon cc -s -n B dah_api.py auth_session.py debtor_notifications.py main.py tests
 ```
+
+Additional static gates:
+
+- `pylint`: enables only `duplicate-code` and `unreachable` through `.pylintrc`.
+- `pyright`: uses `pyrightconfig.json` with `reportUnreachable` enabled.
+- `vulture`: reports 100% confidence dead/unreachable code only; pytest
+  fixture argument `cli_env` is ignored.
 
 For request construction tests, instantiate `DahApiClient` with a test `DahApiConfig` and call private `_build_request` only when the task is specifically about headers, URL construction, or serialized JSON. Prefer public methods for behavior-level examples.
