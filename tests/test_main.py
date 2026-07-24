@@ -30,10 +30,15 @@ class FakeClient:
         return self.record("access")
 
     def authentication_web_login(self, request):
-        return self.record("authentication-web-login", request)
+        self.calls.append(("authentication-web-login", request))
+        return {"accessToken": "secret-access-token", "login": request.login}
 
     def authentication_relogin(self, request):
-        return self.record("authentication-relogin", request)
+        self.calls.append(("authentication-relogin", request))
+        return {
+            "refreshToken": "secret-refresh-token",
+            "deviceId": request.device_id,
+        }
 
     def authentication_exit(self):
         return self.record("authentication-exit")
@@ -134,6 +139,12 @@ def run_cli(argv, capsys):
     return status, json.loads(streams.out), streams.err, FakeClient.instances[-1]
 
 
+def run_cli_text(argv, capsys):
+    status = cli.DahCli().run(argv)
+    streams = capsys.readouterr()
+    return status, streams.out, streams.err, FakeClient.instances[-1]
+
+
 def last_call(client):
     return client.calls[-1] if client.calls else (None, None)
 
@@ -169,6 +180,16 @@ def single(argv, response, call, attrs=(), request=None, env=None):
 CASES = [
     single(args("--compact access"), {"method": "access"}, "access"),
     single(
+        args("auth-status"),
+        {
+            "bearerTokenPresent": True,
+            "bearerTokenExpiresAt": None,
+            "bearerTokenExpired": None,
+            "accessCheck": {"ok": True},
+        },
+        "access",
+    ),
+    single(
         args("authentication-exit"),
         {"method": "authentication-exit"},
         "authentication-exit",
@@ -185,7 +206,7 @@ CASES = [
             "authentication-web-login --body "
             '\'{"clientId":"DAH_CLIENT_WEB","login":"login","password":"password"}\''
         ),
-        {"method": "authentication-web-login"},
+        {"response": {"accessToken": "<redacted>", "login": "<redacted>"}},
         "authentication-web-login",
         ("client_id", "login", "password"),
         {
@@ -212,7 +233,12 @@ CASES = [
             '\'{"clientId":"DAH_CLIENT_WEB","clientType":"WEB",'
             '"deviceId":"device","refreshToken":"refresh"}\''
         ),
-        {"method": "authentication-relogin"},
+        {
+            "response": {
+                "deviceId": "device",
+                "refreshToken": "<redacted>",
+            }
+        },
         "authentication-relogin",
         ("client_id", "client_type", "device_id", "refresh_token"),
         {
@@ -501,12 +527,87 @@ def test_cli_debtors_notify(cli_env, capsys):
         status,
         response["mode"],
         response["ready"][0]["apartment"],
+        response["ready"][0]["checks"]["exactApartmentFound"],
         [name for name, _ in client.calls],
     ) == (
         0,
         "dry-run",
         "55",
+        True,
         ["apartment-list", "bill-debt-analytics"],
+    )
+
+
+def test_cli_debtors_notify_formats_and_confirm(cli_env, capsys):
+    FakeClient.debt_response = {
+        "rows": [{"apartmentName": "Квартира 55", "endBalance": -4203.9}]
+    }
+    FakeClient.apartment_response = {
+        "content": [
+            {
+                "number": "55",
+                "owners": [
+                    {"user": {"userId": "user-id", "userStatus": "ACTIVE"}}
+                ],
+            }
+        ],
+        "last": True,
+    }
+
+    text = run_cli_text(args("debtors-notify --format text"), capsys)[1]
+    table = run_cli_text(args("debtors-notify --format table"), capsys)[1]
+    failed_status = cli.DahCli().run(args("debtors-notify --send"))
+    failed_streams = capsys.readouterr()
+    status, response, _, client = run_cli(
+        args("debtors-notify --send --confirm 55"),
+        capsys,
+    )
+
+    assert (
+        "Mode: dry-run" in text,
+        "55 | 4 203,90 | 1" in table,
+        failed_status,
+        "Missing --confirm" in failed_streams.err,
+        status,
+        response["mode"],
+        response["sent"],
+        [name for name, _ in client.calls],
+    ) == (
+        True,
+        True,
+        1,
+        True,
+        0,
+        "send",
+        [{"apartment": "55", "recipients": 1}],
+        [
+            "apartment-list",
+            "bill-debt-analytics",
+            "messenger-send-message",
+        ],
+    )
+
+
+def test_cli_auth_save_env_local(cli_env, capsys, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    status, response, _, _ = run_cli(
+        args("authentication-web-login --body "
+             '\'{"login":"login","password":"password"}\' --save-env-local'),
+        capsys,
+    )
+
+    assert (
+        status,
+        response["response"]["accessToken"],
+        response["response"]["login"],
+        response["env"],
+        (tmp_path / ".env.local").read_text(encoding="utf-8"),
+    ) == (
+        0,
+        "<redacted>",
+        "<redacted>",
+        {"path": ".env.local", "keys": ["DAH_BEARER_TOKEN"]},
+        "DAH_BEARER_TOKEN=secret-access-token\n",
     )
 
 

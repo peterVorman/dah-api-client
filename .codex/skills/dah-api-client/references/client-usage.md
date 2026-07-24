@@ -11,6 +11,8 @@ $PWD
 Important files:
 
 - `dah_api.py`: object-oriented API client, configuration, request types, and exceptions.
+- `auth_session.py`: sanitized auth-status, JWT expiry inspection, and optional
+  `.env.local` auth updates.
 - `main.py`: CLI wrapper around the client.
 
 ## License And DAH Terms
@@ -162,8 +164,11 @@ Run commands from the repository root.
 
 ```bash
 python3 main.py access
+python3 main.py auth-status
 python3 main.py authentication-web-login --dry-run
+python3 main.py authentication-web-login --save-env-local
 python3 main.py authentication-relogin --device-id "$DAH_DEVICE_ID" --dry-run
+python3 main.py authentication-relogin --save-env-local
 python3 main.py authentication-exit
 python3 main.py publications-search --page 0 --size 5
 python3 main.py publications-search --body '{"associationId":"<association id>","statuses":["PUBLISHED"]}'
@@ -172,7 +177,8 @@ python3 main.py publication-get '<publication id>'
 python3 main.py publication-save --body-file publication.json --dry-run
 python3 main.py bill-debt-analytics --date 2026-07-08T15:10 --debt-filter-accruals 1
 python3 main.py debtors-notify --min-debt 3000 --limit 10
-python3 main.py debtors-notify --apartment-number 55 --send
+python3 main.py debtors-notify --min-debt 3000 --format table
+python3 main.py debtors-notify --apartment-number 55 --send --confirm 55
 python3 main.py feedback-order-list
 python3 main.py feedback-order-status '<feedback order id>' --status DONE --dry-run
 python3 main.py apartment-list --page 0 --size 50
@@ -218,6 +224,11 @@ Use `DAH_LOGIN` and `DAH_PASSWORD`, or pass a JSON body/body file. Treat both
 values as credentials and avoid putting real values in committed files or shell
 history.
 
+The CLI command sanitizes real login responses before printing them. Use
+`--save-env-local` only when the returned auth response should update
+`.env.local` with recognized token fields. The command stores only recognized
+auth keys and prints the saved key names, not token values.
+
 `DahApiClient.authentication_relogin()` calls:
 
 ```text
@@ -239,11 +250,20 @@ Use `DAH_REFRESH_TOKEN` and `DAH_DEVICE_ID`, or pass a JSON body/body file.
 Treat `refreshToken` as a credential and avoid putting real values in committed
 files or shell history.
 
+The CLI command supports `--save-env-local` with the same sanitized output rules
+as `authentication-web-login`.
+
 `DahApiClient.authentication_exit()` calls:
 
 ```text
 GET /authentication/exit
 ```
+
+`python3 main.py auth-status` inspects the local bearer token without printing
+it. When the token is JWT-shaped, it reports the `exp` timestamp as
+`bearerTokenExpiresAt`; otherwise expiry is `null`. If a bearer token is
+present, the command also checks `get_access` reachability and returns only an
+`ok` flag or sanitized error text.
 
 `DahApiClient.search_publications()` calls:
 
@@ -379,6 +399,12 @@ The command defaults to dry-run preview and returns `ready`, `sent`, and
 Use `--apartment-number` multiple times to target exact apartments, `--min-debt`
 to filter small debts, and `--limit` to cap the ready notifications.
 
+Use `--format json`, `--format table`, or `--format text` for machine-readable
+or operator-readable output. `--send` requires `--confirm <apartment number>`
+for every ready notification; repeat `--confirm` for batches. Dry-run previews
+include readiness checks for exact apartment match, active owner presence, and
+personal chat writeability verification before send.
+
 Default publications payload:
 
 ```json
@@ -463,14 +489,35 @@ def example_endpoint(
     )
 ```
 
-For CLI support, add a subparser in `DahCli._build_parser()` and add the command to the local handler map in `DahCli.run()`. Keep response printing centralized through `_print_response`.
+For CLI support, add a subparser in `DahCli._build_parser()` and add the
+command to the local dispatch map. Reuse parser helpers such as
+`add_association_id_argument`, `add_paging_arguments`, and `add_body_arguments`
+instead of repeating common flags. Keep response printing centralized through
+`_print_response`.
+
+Endpoint extension checklist:
+
+1. Add the request dataclass if path params, query params, or payload shape
+   matter.
+2. Add the `DahApiClient` method and delegate to `request_json`.
+3. Quote path ids with `urllib.parse.quote(..., safe="")`.
+4. Add CLI args using existing helper functions.
+5. Add dry-run or explicit confirmation for write endpoints.
+6. Add tests without live API calls.
+7. Update this reference doc and run the quality gates.
 
 ## Testing Without Live API Calls
 
 For compile-level checks:
 
 ```bash
-python3 -m py_compile dah_api.py main.py
+python3 -m py_compile dah_api.py auth_session.py debtor_notifications.py main.py
+python3 -m pytest
+python3 -m ruff check .
+python3 -m flake8
+python3 -m isort --check-only .
+python3 -m bandit -q -r .
+python3 -m radon cc -s -n B dah_api.py auth_session.py debtor_notifications.py main.py tests
 ```
 
 For request construction tests, instantiate `DahApiClient` with a test `DahApiConfig` and call private `_build_request` only when the task is specifically about headers, URL construction, or serialized JSON. Prefer public methods for behavior-level examples.

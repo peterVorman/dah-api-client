@@ -37,7 +37,7 @@ authorized operation.
 For local code changes, run the narrowest useful check first:
 
 ```bash
-python3 -m py_compile dah_api.py debtor_notifications.py main.py
+python3 -m py_compile dah_api.py auth_session.py debtor_notifications.py main.py
 ```
 
 ## Quality Gates
@@ -46,14 +46,14 @@ Before finishing changes to `dah_api.py`, `main.py`, tests, or CLI behavior, run
 the project gates with the active Python environment:
 
 ```bash
-python -m py_compile dah_api.py debtor_notifications.py main.py
+python -m py_compile dah_api.py auth_session.py debtor_notifications.py main.py
 python -m pytest
 python -m ruff check .
 python -m flake8
 python -m isort --check-only .
 python -m bandit -q -r .
-python -m radon cc -s -a dah_api.py debtor_notifications.py main.py tests
-python -m radon cc -s -n B dah_api.py debtor_notifications.py main.py tests
+python -m radon cc -s -a dah_api.py auth_session.py debtor_notifications.py main.py tests
+python -m radon cc -s -n B dah_api.py auth_session.py debtor_notifications.py main.py tests
 ```
 
 Treat any output from the final `radon -n B` command as a failure: complexity
@@ -76,7 +76,8 @@ When adding a DAH endpoint:
    default payloads, and error handling.
 6. Update `references/client-usage.md` with the Python import, CLI example,
    client method, path, and default payload details.
-7. Run the Quality Gates.
+7. For write endpoints, add a dry-run or explicit confirmation guard.
+8. Run the Quality Gates.
 
 For live API calls, warn the user that the request will contact `api.dah-online.com` if that is not already obvious from the request. Use read-oriented endpoints by default.
 

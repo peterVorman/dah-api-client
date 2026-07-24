@@ -7,8 +7,12 @@ from debtor_notifications import (
     active_owner_user_ids,
     apartment_number,
     debtor_from,
+    debtor_notification_table,
+    debtor_notification_text,
+    format_debtor_notification_report,
     format_money,
     message_apartment_label,
+    missing_confirmations,
     rows_from,
     short_apartment_label,
     validate_personal_group,
@@ -86,7 +90,11 @@ def test_debtor_notification_preview_and_send():
         )
     )
     sent = service.run(
-        DebtorNotificationRequest(apartment_numbers=["55"], send=True)
+        DebtorNotificationRequest(
+            apartment_numbers=["55"],
+            confirm_apartment_numbers=["55"],
+            send=True,
+        )
     )
 
     assert preview == {
@@ -96,6 +104,11 @@ def test_debtor_notification_preview_and_send():
                 "apartment": "55",
                 "debt": 4203.9,
                 "recipients": 1,
+                "checks": {
+                    "exactApartmentFound": True,
+                    "activeOwnerFound": True,
+                    "personalChatWritable": "checked before send",
+                },
                 "message": (
                     "Добрий день. За даними DAH по квартирі 55 є "
                     "заборгованість 4 203,90 грн.\n\n"
@@ -118,9 +131,11 @@ def test_debtor_notification_preview_and_send():
         len(client.sent),
         client.sent[0].group_id,
     ) == ("send", [{"apartment": "55", "recipients": 1}], 1, "group-user-55")
+    with pytest.raises(DahRequestError, match="Missing --confirm"):
+        service.run(DebtorNotificationRequest(apartment_numbers=["55"], send=True))
 
 
-def test_debtor_notification_helpers_and_errors():
+def test_debtor_notification_extract_helpers():
     assert (
         rows_from({"content": [{"ok": True}, "bad"]}),
         rows_from("bad"),
@@ -133,6 +148,7 @@ def test_debtor_notification_helpers_and_errors():
             {"owners": [{"user": {"id": "u", "userStatus": "ACTIVE"}}]}
         ),
         format_money(1234.5),
+        missing_confirmations(DebtorNotificationRequest(), []),
     ) == (
         [{"ok": True}],
         [],
@@ -143,9 +159,36 @@ def test_debtor_notification_helpers_and_errors():
         "приміщенню 175",
         ["u"],
         "1 234,50",
+        [],
     )
 
-    for group, message in [
+
+def test_debtor_notification_format_helpers():
+    report = {
+        "mode": "dry-run",
+        "ready": [{"apartment": "55", "debt": 4203.9, "recipients": 1}],
+    }
+    assert format_debtor_notification_report(report, "json") == report
+
+
+def test_debtor_notification_table_format():
+    rows = [{"apartment": "55", "debt": 4203.9, "recipients": 1}]
+    assert debtor_notification_table([]) == "No ready debtor notifications."
+    assert "55 | 4 203,90 | 1" in debtor_notification_table(rows)
+
+
+def test_debtor_notification_text_format():
+    report = {
+        "mode": "dry-run",
+        "ready": [{"apartment": "55", "debt": 4203.9, "recipients": 1}],
+    }
+    assert "Mode: dry-run" in debtor_notification_text(report, report["ready"])
+    assert "No ready" in debtor_notification_text(report, [])
+
+
+@pytest.mark.parametrize(
+    ("group", "message"),
+    [
         ([], "not an object"),
         ({"interlocutorId": "other"}, "mismatch"),
         ({"interlocutorId": "u", "type": "GROUP"}, "type"),
@@ -154,6 +197,8 @@ def test_debtor_notification_helpers_and_errors():
             {"interlocutorId": "u", "type": "PERSONAL", "canWriteMessage": True},
             "id is missing",
         ),
-    ]:
-        with pytest.raises(DahRequestError, match=message):
-            validate_personal_group(group, "u")
+    ],
+)
+def test_validate_personal_group_errors(group, message):
+    with pytest.raises(DahRequestError, match=message):
+        validate_personal_group(group, "u")

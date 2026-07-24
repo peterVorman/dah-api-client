@@ -26,7 +26,7 @@ jobs:
           python -m pip install -r requirements.txt
 
       - name: Compile
-        run: python -m py_compile dah_api.py main.py
+        run: python -m py_compile dah_api.py auth_session.py debtor_notifications.py main.py
 
       - name: Test
         run: python -m pytest
@@ -42,8 +42,8 @@ jobs:
 
       - name: Complexity
         run: |
-          python -m radon cc -s -a dah_api.py main.py tests
-          bad_complexity="$(python -m radon cc -s -n B dah_api.py main.py tests)"
+          python -m radon cc -s -a dah_api.py auth_session.py debtor_notifications.py main.py tests
+          bad_complexity="$(python -m radon cc -s -n B dah_api.py auth_session.py debtor_notifications.py main.py tests)"
           if [ -n "$bad_complexity" ]; then
             echo "$bad_complexity"
             exit 1

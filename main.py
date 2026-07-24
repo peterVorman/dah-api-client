@@ -11,6 +11,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
+from auth_session import auth_status, sanitize_auth_response, save_auth_env
 from dah_api import (
     DEFAULT_BASE_URL,
     DEFAULT_ORIGIN,
@@ -41,6 +42,7 @@ from debtor_notifications import (
     DEFAULT_DEBTOR_MESSAGE_TEMPLATE,
     DebtorNotificationRequest,
     DebtorNotificationService,
+    format_debtor_notification_report,
 )
 
 MISSING_MESSENGER_GROUP_ID_MESSAGE = (
@@ -58,72 +60,134 @@ class DahCli:
         client = DahApiClient(self._build_config(args))
 
         try:
-            handlers = {
-                "access": client.get_access,
-                "authentication-web-login": lambda: self._login_or_preview(
-                    args, client
-                ),
-                "authentication-relogin": lambda: self._relogin_or_preview(
-                    args, client
-                ),
-                "authentication-exit": client.authentication_exit,
-                "publications-search": lambda: client.search_publications(
-                    self._build_publications_request(args)
-                ),
-                "publication-get": lambda: client.get_publication(args.publication_id),
-                "publication-save": lambda: self._save_or_preview_publication(
-                    args, client
-                ),
-                "bill-debt-analytics": lambda: client.get_bill_debt_analytics(
-                    self._build_bill_debt_analytics_request(args)
-                ),
-                "debtors-notify": lambda: DebtorNotificationService(client).run(
-                    self._build_debtor_notification_request(args)
-                ),
-                "feedback-order-list": lambda: client.list_feedback_orders(
-                    self._build_feedback_order_list_request(args)
-                ),
-                "feedback-order-status": lambda: self._update_or_preview_order_status(
-                    args, client
-                ),
-                "apartment-list": lambda: client.list_apartments(
-                    self._build_apartment_list_request(args)
-                ),
-                "money-transaction-bank-list": lambda: (
-                    client.list_money_transaction_bank(
-                        self._build_money_transaction_bank_list_request(args)
-                    )
-                ),
-                "messenger-group-messages": lambda: (
-                    client.list_messenger_group_messages(
-                        self._build_messenger_group_messages_request(args)
-                    )
-                ),
-                "messenger-groups-page": lambda: client.list_messenger_groups(
-                    self._build_messenger_groups_page_request(args)
-                ),
-                "messenger-personal-group-get": lambda: (
-                    client.get_messenger_personal_group(
-                        MessengerPersonalGroupRequest(args.interlocutor_id)
-                    )
-                ),
-                "messenger-send-message": lambda: self._send_or_preview_message(
-                    args, client
-                ),
-            }
-            response_data = handlers[args.command]()
+            response_data = self._dispatch(args, client)
         except DahHttpError as exc:
-            print(f"HTTP {exc.status_code} {exc.reason}", file=sys.stderr)
-            if exc.body:
-                print(exc.body, file=sys.stderr)
-            return 1
+            return self._print_http_error(exc)
         except DahRequestError as exc:
             print(str(exc), file=sys.stderr)
             return 1
 
-        indent = None if args.compact else 2
-        print(json.dumps(response_data, ensure_ascii=False, indent=indent))
+        self._print_response(response_data, args.compact)
         return 0
+
+    def _dispatch(self, args: argparse.Namespace, client: DahApiClient) -> Any:
+        handlers = {
+            "access": client.get_access,
+            "auth-status": lambda: self._auth_status(client),
+            "authentication-web-login": lambda: self._login_or_preview(args, client),
+            "authentication-relogin": lambda: self._relogin_or_preview(args, client),
+            "authentication-exit": client.authentication_exit,
+            "publications-search": lambda: self._publications_search(args, client),
+            "publication-get": lambda: client.get_publication(args.publication_id),
+            "publication-save": lambda: self._save_or_preview_publication(args, client),
+            "bill-debt-analytics": lambda: self._bill_debt_analytics(args, client),
+            "debtors-notify": lambda: self._debtors_notify(args, client),
+            "feedback-order-list": lambda: self._feedback_orders(args, client),
+            "feedback-order-status": lambda: self._update_or_preview_order_status(
+                args, client
+            ),
+            "apartment-list": lambda: self._apartments(args, client),
+            "money-transaction-bank-list": lambda: self._bank_transactions(
+                args, client
+            ),
+            "messenger-group-messages": lambda: self._messenger_group_messages(
+                args, client
+            ),
+            "messenger-groups-page": lambda: self._messenger_groups(args, client),
+            "messenger-personal-group-get": lambda: (
+                client.get_messenger_personal_group(
+                    MessengerPersonalGroupRequest(args.interlocutor_id)
+                )
+            ),
+            "messenger-send-message": lambda: self._send_or_preview_message(
+                args, client
+            ),
+        }
+        return handlers[args.command]()
+
+    @staticmethod
+    def _print_http_error(exc: DahHttpError) -> int:
+        print(f"HTTP {exc.status_code} {exc.reason}", file=sys.stderr)
+        if exc.body:
+            print(exc.body, file=sys.stderr)
+        return 1
+
+    @staticmethod
+    def _print_response(response_data: Any, compact: bool) -> None:
+        if isinstance(response_data, str):
+            print(response_data)
+            return
+        indent = None if compact else 2
+        print(json.dumps(response_data, ensure_ascii=False, indent=indent))
+
+    def _auth_status(self, client: DahApiClient) -> dict[str, Any]:
+        error = None
+        access_data = None
+        if client.config.token:
+            try:
+                access_data = client.get_access()
+            except (DahHttpError, DahRequestError) as exc:
+                error = str(exc)
+        return auth_status(client.config.token, access_data, error)
+
+    def _publications_search(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> Any:
+        return client.search_publications(self._build_publications_request(args))
+
+    def _bill_debt_analytics(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> Any:
+        return client.get_bill_debt_analytics(
+            self._build_bill_debt_analytics_request(args)
+        )
+
+    def _feedback_orders(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> Any:
+        return client.list_feedback_orders(
+            self._build_feedback_order_list_request(args)
+        )
+
+    def _apartments(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> Any:
+        return client.list_apartments(self._build_apartment_list_request(args))
+
+    def _bank_transactions(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> Any:
+        return client.list_money_transaction_bank(
+            self._build_money_transaction_bank_list_request(args)
+        )
+
+    def _messenger_group_messages(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> Any:
+        return client.list_messenger_group_messages(
+            self._build_messenger_group_messages_request(args)
+        )
+
+    def _messenger_groups(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> Any:
+        return client.list_messenger_groups(
+            self._build_messenger_groups_page_request(args)
+        )
 
     def _update_or_preview_order_status(
         self,
@@ -143,7 +207,10 @@ class DahCli:
         request = self._build_authentication_web_login_request(args)
         if args.dry_run:
             return request.to_payload()
-        return client.authentication_web_login(request)
+        return self._auth_response(
+            client.authentication_web_login(request),
+            args.save_env_local,
+        )
 
     def _relogin_or_preview(
         self,
@@ -153,7 +220,16 @@ class DahCli:
         request = self._build_authentication_relogin_request(args)
         if args.dry_run:
             return request.to_payload()
-        return client.authentication_relogin(request)
+        return self._auth_response(
+            client.authentication_relogin(request),
+            args.save_env_local,
+        )
+
+    def _auth_response(self, response: Any, save_env_local: bool) -> dict[str, Any]:
+        result = {"response": sanitize_auth_response(response)}
+        if save_env_local:
+            result["env"] = save_auth_env(response)
+        return result
 
     def _save_or_preview_publication(
         self,
@@ -174,6 +250,16 @@ class DahCli:
         if args.dry_run:
             return message_request.to_payload()
         return client.send_messenger_message(message_request)
+
+    def _debtors_notify(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> Any:
+        report = DebtorNotificationService(client).run(
+            self._build_debtor_notification_request(args)
+        )
+        return format_debtor_notification_report(report, args.format)
 
     def _build_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
@@ -224,6 +310,12 @@ class DahCli:
             description="Fetch organization access data.",
         )
 
+        subparsers.add_parser(
+            "auth-status",
+            help="Inspect local bearer token state and get_access reachability.",
+            description="Show sanitized local DAH authentication status.",
+        )
+
         login_parser = subparsers.add_parser(
             "authentication-web-login",
             help="POST /authentication/web/login",
@@ -239,15 +331,8 @@ class DahCli:
             action="store_true",
             help="Print the login request body without sending it.",
         )
-        login_body_group = login_parser.add_mutually_exclusive_group()
-        login_body_group.add_argument(
-            "--body",
-            help="Inline JSON body to send to the endpoint.",
-        )
-        login_body_group.add_argument(
-            "--body-file",
-            help="Path to a JSON file containing the request body.",
-        )
+        add_save_env_argument(login_parser)
+        add_body_arguments(login_parser)
 
         relogin_parser = subparsers.add_parser(
             "authentication-relogin",
@@ -274,15 +359,8 @@ class DahCli:
             action="store_true",
             help="Print the relogin request body without sending it.",
         )
-        relogin_body_group = relogin_parser.add_mutually_exclusive_group()
-        relogin_body_group.add_argument(
-            "--body",
-            help="Inline JSON body to send to the endpoint.",
-        )
-        relogin_body_group.add_argument(
-            "--body-file",
-            help="Path to a JSON file containing the request body.",
-        )
+        add_save_env_argument(relogin_parser)
+        add_body_arguments(relogin_parser)
 
         subparsers.add_parser(
             "authentication-exit",
@@ -295,27 +373,8 @@ class DahCli:
             help="POST /publications/search",
             description="Search publications.",
         )
-        publications_parser.add_argument(
-            "--page",
-            type=int,
-            default=0,
-            help="0-based page number.",
-        )
-        publications_parser.add_argument(
-            "--size",
-            type=int,
-            default=5,
-            help="Page size.",
-        )
-        body_group = publications_parser.add_mutually_exclusive_group()
-        body_group.add_argument(
-            "--body",
-            help="Inline JSON body to send to the endpoint.",
-        )
-        body_group.add_argument(
-            "--body-file",
-            help="Path to a JSON file containing the request body.",
-        )
+        add_paging_arguments(publications_parser, size=5)
+        add_body_arguments(publications_parser)
 
         publication_get_parser = subparsers.add_parser(
             "publication-get",
@@ -337,31 +396,14 @@ class DahCli:
             action="store_true",
             help="Print the publication request body without saving it.",
         )
-        publication_save_body_group = (
-            publication_save_parser.add_mutually_exclusive_group(required=True)
-        )
-        publication_save_body_group.add_argument(
-            "--body",
-            help="Inline JSON body to send to the endpoint.",
-        )
-        publication_save_body_group.add_argument(
-            "--body-file",
-            help="Path to a JSON file containing the request body.",
-        )
+        add_body_arguments(publication_save_parser, required=True)
 
         debt_analytics_parser = subparsers.add_parser(
             "bill-debt-analytics",
             help="POST /accounting/v1/report/bill/{associationId}/debt/analytics",
             description="Fetch bill debt analytics.",
         )
-        debt_analytics_parser.add_argument(
-            "--association-id",
-            default=os.getenv("DAH_ASSOCIATION_ID"),
-            help=(
-                "Association id path parameter. Defaults to DAH_ASSOCIATION_ID "
-                "or a single id resolved from get_access."
-            ),
-        )
+        add_association_id_argument(debt_analytics_parser)
         debt_analytics_parser.add_argument(
             "--date",
             help=(
@@ -374,15 +416,7 @@ class DahCli:
             default=1,
             help="Value for debtFilterAccruals in the default request body.",
         )
-        debt_body_group = debt_analytics_parser.add_mutually_exclusive_group()
-        debt_body_group.add_argument(
-            "--body",
-            help="Inline JSON body to send to the endpoint.",
-        )
-        debt_body_group.add_argument(
-            "--body-file",
-            help="Path to a JSON file containing the request body.",
-        )
+        add_body_arguments(debt_analytics_parser)
 
         notify_parser = subparsers.add_parser(
             "debtors-notify",
@@ -392,14 +426,7 @@ class DahCli:
                 "Defaults to dry-run preview; use --send to write."
             ),
         )
-        notify_parser.add_argument(
-            "--association-id",
-            default=os.getenv("DAH_ASSOCIATION_ID"),
-            help=(
-                "Association id path parameter. Defaults to DAH_ASSOCIATION_ID "
-                "or a single id resolved from get_access."
-            ),
-        )
+        add_association_id_argument(notify_parser)
         notify_parser.add_argument(
             "--date",
             help=(
@@ -439,29 +466,26 @@ class DahCli:
             action="store_true",
             help="Actually send messages. Omit for dry-run preview.",
         )
+        notify_parser.add_argument(
+            "--confirm",
+            action="append",
+            default=[],
+            help="Apartment number confirmed for --send. Repeat for batches.",
+        )
+        notify_parser.add_argument(
+            "--format",
+            choices=("json", "table", "text"),
+            default="json",
+            help="Output format. Defaults to json.",
+        )
 
         feedback_order_parser = subparsers.add_parser(
             "feedback-order-list",
             help="POST /feedback/order/list/{associationId}",
             description="Fetch feedback order list.",
         )
-        feedback_order_parser.add_argument(
-            "--association-id",
-            default=os.getenv("DAH_ASSOCIATION_ID"),
-            help=(
-                "Association id path parameter. Defaults to DAH_ASSOCIATION_ID "
-                "or a single id resolved from get_access."
-            ),
-        )
-        feedback_body_group = feedback_order_parser.add_mutually_exclusive_group()
-        feedback_body_group.add_argument(
-            "--body",
-            help="Inline JSON body to send to the endpoint.",
-        )
-        feedback_body_group.add_argument(
-            "--body-file",
-            help="Path to a JSON file containing the request body.",
-        )
+        add_association_id_argument(feedback_order_parser)
+        add_body_arguments(feedback_order_parser)
 
         feedback_status_parser = subparsers.add_parser(
             "feedback-order-status",
@@ -488,61 +512,17 @@ class DahCli:
             help="POST /organization/v1/apartment/{associationId}/list",
             description="Fetch apartments and owner metadata.",
         )
-        apartment_parser.add_argument(
-            "--association-id",
-            default=os.getenv("DAH_ASSOCIATION_ID"),
-            help=(
-                "Association id path parameter. Defaults to DAH_ASSOCIATION_ID "
-                "or a single id resolved from get_access."
-            ),
-        )
-        apartment_parser.add_argument(
-            "--page",
-            type=int,
-            default=0,
-            help="0-based page number.",
-        )
-        apartment_parser.add_argument(
-            "--size",
-            type=int,
-            default=50,
-            help="Page size.",
-        )
-        apartment_body_group = apartment_parser.add_mutually_exclusive_group()
-        apartment_body_group.add_argument(
-            "--body",
-            help="Inline JSON body to send to the endpoint.",
-        )
-        apartment_body_group.add_argument(
-            "--body-file",
-            help="Path to a JSON file containing the request body.",
-        )
+        add_association_id_argument(apartment_parser)
+        add_paging_arguments(apartment_parser)
+        add_body_arguments(apartment_parser)
 
         money_transaction_parser = subparsers.add_parser(
             "money-transaction-bank-list",
             help="POST /accounting/v1/money/transaction/{associationId}/list/bank",
             description="Fetch bank money transactions.",
         )
-        money_transaction_parser.add_argument(
-            "--association-id",
-            default=os.getenv("DAH_ASSOCIATION_ID"),
-            help=(
-                "Association id path parameter. Defaults to DAH_ASSOCIATION_ID "
-                "or a single id resolved from get_access."
-            ),
-        )
-        money_transaction_parser.add_argument(
-            "--page",
-            type=int,
-            default=0,
-            help="0-based page number.",
-        )
-        money_transaction_parser.add_argument(
-            "--size",
-            type=int,
-            default=50,
-            help="Page size.",
-        )
+        add_association_id_argument(money_transaction_parser)
+        add_paging_arguments(money_transaction_parser)
         money_transaction_parser.add_argument(
             "--direction",
             default="EXPENSE",
@@ -555,17 +535,7 @@ class DahCli:
                 "for example 2026-07-01T00:00:00."
             ),
         )
-        money_transaction_body_group = (
-            money_transaction_parser.add_mutually_exclusive_group()
-        )
-        money_transaction_body_group.add_argument(
-            "--body",
-            help="Inline JSON body to send to the endpoint.",
-        )
-        money_transaction_body_group.add_argument(
-            "--body-file",
-            help="Path to a JSON file containing the request body.",
-        )
+        add_body_arguments(money_transaction_parser)
 
         messenger_parser = subparsers.add_parser(
             "messenger-group-messages",
@@ -579,56 +549,16 @@ class DahCli:
                 "Messenger group id path parameter. Defaults to DAH_MESSENGER_GROUP_ID."
             ),
         )
-        messenger_parser.add_argument(
-            "--page",
-            type=int,
-            default=0,
-            help="0-based page number.",
-        )
-        messenger_parser.add_argument(
-            "--size",
-            type=int,
-            default=50,
-            help="Page size.",
-        )
-        messenger_body_group = messenger_parser.add_mutually_exclusive_group()
-        messenger_body_group.add_argument(
-            "--body",
-            help="Inline JSON body to send to the endpoint.",
-        )
-        messenger_body_group.add_argument(
-            "--body-file",
-            help="Path to a JSON file containing the request body.",
-        )
+        add_paging_arguments(messenger_parser)
+        add_body_arguments(messenger_parser)
 
         messenger_groups_parser = subparsers.add_parser(
             "messenger-groups-page",
             help="POST /messenger/groups/page",
             description="Fetch messenger groups page.",
         )
-        messenger_groups_parser.add_argument(
-            "--page",
-            type=int,
-            default=0,
-            help="0-based page number.",
-        )
-        messenger_groups_parser.add_argument(
-            "--size",
-            type=int,
-            default=50,
-            help="Page size.",
-        )
-        messenger_groups_body_group = (
-            messenger_groups_parser.add_mutually_exclusive_group()
-        )
-        messenger_groups_body_group.add_argument(
-            "--body",
-            help="Inline JSON body to send to the endpoint.",
-        )
-        messenger_groups_body_group.add_argument(
-            "--body-file",
-            help="Path to a JSON file containing the request body.",
-        )
+        add_paging_arguments(messenger_groups_parser)
+        add_body_arguments(messenger_groups_parser)
 
         send_message_parser = subparsers.add_parser(
             "messenger-send-message",
@@ -684,6 +614,7 @@ class DahCli:
 
     def _build_config(self, args: argparse.Namespace) -> DahApiConfig:
         auth_command = args.command in {
+            "auth-status",
             "authentication-relogin",
             "authentication-web-login",
         }
@@ -787,6 +718,7 @@ class DahCli:
             min_debt=args.min_debt,
             limit=args.limit,
             apartment_numbers=args.apartment_number,
+            confirm_apartment_numbers=args.confirm,
             message_template=args.message_template,
             send=args.send,
         )
@@ -957,6 +889,60 @@ class PersonalGroupResolver:
         if not isinstance(group_id, str) or not group_id:
             raise SystemExit("Unable to resolve personal chat: missing group id.")
         return group_id
+
+
+def add_association_id_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--association-id",
+        default=os.getenv("DAH_ASSOCIATION_ID"),
+        help=(
+            "Association id path parameter. Defaults to DAH_ASSOCIATION_ID "
+            "or a single id resolved from get_access."
+        ),
+    )
+
+
+def add_paging_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    size: int = 50,
+) -> None:
+    parser.add_argument(
+        "--page",
+        type=int,
+        default=0,
+        help="0-based page number.",
+    )
+    parser.add_argument(
+        "--size",
+        type=int,
+        default=size,
+        help="Page size.",
+    )
+
+
+def add_body_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    required: bool = False,
+) -> None:
+    body_group = parser.add_mutually_exclusive_group(required=required)
+    body_group.add_argument(
+        "--body",
+        help="Inline JSON body to send to the endpoint.",
+    )
+    body_group.add_argument(
+        "--body-file",
+        help="Path to a JSON file containing the request body.",
+    )
+
+
+def add_save_env_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--save-env-local",
+        action="store_true",
+        help="Save returned auth tokens to .env.local without printing them.",
+    )
 
 
 def load_payload(

@@ -32,6 +32,7 @@ class DebtorNotificationRequest:
     min_debt: float = 0
     limit: int | None = None
     apartment_numbers: list[str] = field(default_factory=list)
+    confirm_apartment_numbers: list[str] = field(default_factory=list)
     message_template: str = DEFAULT_DEBTOR_MESSAGE_TEMPLATE
     send: bool = False
 
@@ -54,6 +55,7 @@ class DebtorNotificationService:
         debtors = self._debtors(request)
         notifications = self._build_notifications(request, apartments, debtors)
         skipped = self._skipped_debtors(apartments, debtors)
+        validate_send_confirmation(request, notifications)
         sent = [
             self._send(notification)
             for notification in notifications
@@ -188,6 +190,11 @@ class DebtorNotificationService:
             "apartment": notification.apartment_number,
             "debt": round(notification.debt, 2),
             "recipients": len(notification.owner_user_ids),
+            "checks": {
+                "exactApartmentFound": True,
+                "activeOwnerFound": True,
+                "personalChatWritable": "checked before send",
+            },
             "message": notification.message,
         }
 
@@ -312,3 +319,65 @@ def validate_personal_group_id(group: dict[str, Any]) -> None:
 
 def format_money(value: float) -> str:
     return f"{value:,.2f}".replace(",", " ").replace(".", ",")
+
+
+def validate_send_confirmation(
+    request: DebtorNotificationRequest,
+    notifications: list[DebtorNotification],
+) -> None:
+    if request.send and missing_confirmations(request, notifications):
+        missing = ", ".join(missing_confirmations(request, notifications))
+        raise DahRequestError(f"Missing --confirm for apartments: {missing}")
+
+
+def missing_confirmations(
+    request: DebtorNotificationRequest,
+    notifications: list[DebtorNotification],
+) -> list[str]:
+    confirmed = set(request.confirm_apartment_numbers)
+    apartments = [notification.apartment_number for notification in notifications]
+    return [apartment for apartment in apartments if apartment not in confirmed]
+
+
+def format_debtor_notification_report(
+    report: dict[str, Any],
+    output_format: str,
+) -> Any:
+    if output_format == "json":
+        return report
+    rows = report.get("ready", [])
+    if output_format == "table":
+        return debtor_notification_table(rows)
+    return debtor_notification_text(report, rows)
+
+
+def debtor_notification_table(rows: Any) -> str:
+    if not isinstance(rows, list) or not rows:
+        return "No ready debtor notifications."
+    lines = ["apartment | debt | recipients", "--- | ---: | ---:"]
+    lines.extend(table_row(row) for row in rows if isinstance(row, dict))
+    return "\n".join(lines)
+
+
+def table_row(row: dict[str, Any]) -> str:
+    return (
+        f"{row.get('apartment', '')} | "
+        f"{format_money(float(row.get('debt', 0)))} | "
+        f"{row.get('recipients', 0)}"
+    )
+
+
+def debtor_notification_text(report: dict[str, Any], rows: Any) -> str:
+    mode = report.get("mode", "dry-run")
+    if not isinstance(rows, list) or not rows:
+        return f"Mode: {mode}\nNo ready debtor notifications."
+    items = [text_row(row) for row in rows if isinstance(row, dict)]
+    return "\n".join([f"Mode: {mode}", *items])
+
+
+def text_row(row: dict[str, Any]) -> str:
+    return (
+        f"- {row.get('apartment', '')}: "
+        f"{format_money(float(row.get('debt', 0)))} грн, "
+        f"отримувачів: {row.get('recipients', 0)}"
+    )
