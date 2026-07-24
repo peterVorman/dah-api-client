@@ -61,6 +61,7 @@ If a live request returns `401 Unauthorized`, first assume the active token is e
 
 ```python
 from dah_api import (
+    ApartmentListRequest,
     DahApiClient,
     DahApiConfig,
     DahHttpError,
@@ -74,6 +75,7 @@ from dah_api import (
     MessengerGroupMessagesRequest,
     MessengerGroupsPageRequest,
     MessengerMessageRequest,
+    MessengerPersonalGroupRequest,
     PublicationSaveRequest,
     PublicationsSearchRequest,
     default_bill_debt_analytics_payload,
@@ -124,12 +126,16 @@ try:
             status="DONE",
         )
     )
+    apartments = client.list_apartments(ApartmentListRequest(page=0, size=50))
     bank_transactions = client.list_money_transaction_bank(
         MoneyTransactionBankListRequest(page=0, size=50)
     )
     groups = client.list_messenger_groups(MessengerGroupsPageRequest(page=0, size=50))
     messages = client.list_messenger_group_messages(
         MessengerGroupMessagesRequest(group_id="<messenger group id>", page=0, size=50)
+    )
+    personal_group = client.get_messenger_personal_group(
+        MessengerPersonalGroupRequest(interlocutor_id="<owner user id>")
     )
     sent_message = client.send_messenger_message(
         MessengerMessageRequest(
@@ -160,10 +166,13 @@ python3 main.py publication-save --body-file publication.json --dry-run
 python3 main.py bill-debt-analytics --date 2026-07-08T15:10 --debt-filter-accruals 1
 python3 main.py feedback-order-list
 python3 main.py feedback-order-status '<feedback order id>' --status DONE --dry-run
+python3 main.py apartment-list --page 0 --size 50
 python3 main.py money-transaction-bank-list --direction EXPENSE --from-date 2026-07-01T00:00:00 --page 0 --size 50
 python3 main.py messenger-groups-page --page 0 --size 50
 python3 main.py messenger-group-messages --group-id '<messenger group id>' --page 0 --size 50
+python3 main.py messenger-personal-group-get '<owner user id>'
 python3 main.py messenger-send-message --chat-name '1 підʼїзд' --dry-run 'Ліфт відновив роботу'
+python3 main.py messenger-send-message --interlocutor-id '<owner user id>' --dry-run 'Повідомлення'
 ```
 
 Common flags:
@@ -290,6 +299,16 @@ preview the body before changing a DAH feedback order status.
 POST /accounting/v1/money/transaction/<associationId>/list/bank?page=<page>&size=<size>
 ```
 
+`DahApiClient.list_apartments()` calls:
+
+```text
+POST /organization/v1/apartment/<associationId>/list?page=<page>&size=<size>
+```
+
+Use this endpoint to fetch apartment records and inspect `owners[].user.userId`
+for authorized direct DAH messenger operations. Treat owner metadata as personal
+data and avoid committing captured responses.
+
 `DahApiClient.list_messenger_group_messages()` calls:
 
 ```text
@@ -301,6 +320,16 @@ POST /messenger/groups/<groupId>/messages?page=<page>&size=<size>
 ```text
 POST /messenger/groups/page?page=<page>&size=<size>
 ```
+
+`DahApiClient.get_messenger_personal_group()` calls:
+
+```text
+GET /messenger/groups/personal/<interlocutorId>/get
+```
+
+Use an exact `owners[].user.userId` value as `interlocutorId`. Validate that the
+response is a writable `PERSONAL` group whose `interlocutorId` matches before
+sending a direct message.
 
 `DahApiClient.send_messenger_message()` calls:
 
@@ -320,6 +349,7 @@ Message body:
 ```
 
 Use `python3 main.py messenger-send-message --chat-name '<exact chat name>' --dry-run '<message>'` to resolve a chat by exact name and preview the body before sending.
+Use `python3 main.py messenger-send-message --interlocutor-id '<owner user id>' --dry-run '<message>'` to resolve a personal chat from an exact owner user id.
 
 Default publications payload:
 

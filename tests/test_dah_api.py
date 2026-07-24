@@ -91,8 +91,10 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
         dah_api.AuthenticationReloginRequest("refresh", "device").to_payload(),
         dah_api.FeedbackOrderListRequest().payload,
         dah_api.FeedbackOrderStatusRequest("order-id").to_payload(),
+        dah_api.ApartmentListRequest().payload,
         dah_api.MessengerGroupMessagesRequest("g").payload,
         dah_api.MessengerGroupsPageRequest().payload,
+        dah_api.MessengerPersonalGroupRequest("user-id").interlocutor_id,
         dah_api.MoneyTransactionBankListRequest().payload,
         dah_api.PublicationSaveRequest({"title": "Hi"}).to_payload("assoc-id"),
         dah_api.MessengerMessageRequest("g", "hi").to_payload(),
@@ -127,6 +129,8 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
         {"status": "DONE"},
         {},
         {},
+        {},
+        "user-id",
         {"direction": "EXPENSE"},
         {"associationId": "assoc-id", "title": "Hi"},
         {
@@ -208,6 +212,9 @@ def test_endpoint_requests():
     client.update_feedback_order_status(
         dah_api.FeedbackOrderStatusRequest("order/id", "DONE")
     )
+    client.list_apartments(
+        dah_api.ApartmentListRequest("apartment/id", 1, 2, {"apartments": True})
+    )
     client.list_money_transaction_bank(
         dah_api.MoneyTransactionBankListRequest(
             "money/id",
@@ -221,6 +228,9 @@ def test_endpoint_requests():
     )
     client.list_messenger_groups(
         dah_api.MessengerGroupsPageRequest(7, 8, {"q": "chat"})
+    )
+    client.get_messenger_personal_group(
+        dah_api.MessengerPersonalGroupRequest("user/id")
     )
     client.send_messenger_message(
         dah_api.MessengerMessageRequest("group-id", "hello", create_time=9)
@@ -238,9 +248,11 @@ def test_endpoint_requests():
         "/accounting/v1/report/bill/assoc%2Fid/debt/analytics",
         "/feedback/order/list/feedback%2Fid",
         "/feedback/order/comment/order%2Fid",
+        "/organization/v1/apartment/apartment%2Fid/list",
         "/accounting/v1/money/transaction/money%2Fid/list/bank",
         "/messenger/groups/group%2Fid/messages",
         "/messenger/groups/page",
+        "/messenger/groups/personal/user%2Fid/get",
         "/messenger/messages",
     ]
     assert (
@@ -256,7 +268,9 @@ def test_endpoint_requests():
         client.calls[8]["tab_id"],
         client.calls[10]["payload"],
         client.calls[11]["query"],
-        client.calls[14]["payload"],
+        client.calls[12]["query"],
+        client.calls[15]["method"],
+        client.calls[16]["payload"],
     ) == (
         {
             "clientId": "DAH_CLIENT_WEB",
@@ -278,7 +292,9 @@ def test_endpoint_requests():
         {"debt": True},
         "tab",
         {"status": "DONE"},
+        {"page": 1, "size": 2},
         {"page": 3, "size": 4},
+        "GET",
         {
             "createTime": 9,
             "groupId": "group-id",

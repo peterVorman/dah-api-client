@@ -57,6 +57,9 @@ class FakeClient:
     def update_feedback_order_status(self, request):
         return self.record("feedback-order-status", request)
 
+    def list_apartments(self, request):
+        return self.record("apartment-list", request)
+
     def list_money_transaction_bank(self, request):
         return self.record("money-transaction-bank-list", request)
 
@@ -66,6 +69,14 @@ class FakeClient:
     def list_messenger_groups(self, request):
         self.calls.append(("messenger-groups-page", request))
         return type(self).groups_pages[request.page]
+
+    def get_messenger_personal_group(self, request):
+        return {
+            "id": "personal-group-id",
+            "interlocutorId": request.interlocutor_id,
+            "type": "PERSONAL",
+            "canWriteMessage": True,
+        }
 
     def send_messenger_message(self, request):
         return self.record("messenger-send-message", request)
@@ -79,6 +90,15 @@ class GroupsClient:
     def list_messenger_groups(self, request):
         self.requests.append(request)
         return self.pages[request.page]
+
+
+class PersonalGroupClient:
+    def __init__(self, group):
+        self.group = group
+
+    def get_messenger_personal_group(self, request):
+        self.request = request
+        return self.group
 
 
 @pytest.fixture
@@ -270,6 +290,13 @@ CASES = [
         calls=[],
     ),
     single(
+        args('apartment-list --association-id assoc-id --page 1 --size 25'),
+        {"method": "apartment-list"},
+        "apartment-list",
+        ("association_id", "page", "size", "payload"),
+        {"association_id": "assoc-id", "page": 1, "size": 25, "payload": {}},
+    ),
+    single(
         args(
             "money-transaction-bank-list --association-id assoc-id "
             "--page 1 --size 25 --direction EXPENSE "
@@ -303,6 +330,17 @@ CASES = [
         {"page": 0, "size": 50},
     ),
     case(
+        args("messenger-personal-group-get user-id"),
+        {
+            "id": "personal-group-id",
+            "interlocutorId": "user-id",
+            "type": "PERSONAL",
+            "canWriteMessage": True,
+        },
+        None,
+        [],
+    ),
+    case(
         args(
             "messenger-send-message --group-id group-id --create-time 7 --dry-run hello"
         ),
@@ -324,6 +362,13 @@ CASES = [
         ["messenger-groups-page", "messenger-send-message"],
         ("group_id",),
         {"group_id": "chat-id"},
+    ),
+    single(
+        args("messenger-send-message --interlocutor-id user-id hello"),
+        {"method": "messenger-send-message"},
+        "messenger-send-message",
+        ("group_id", "payload"),
+        {"group_id": "personal-group-id", "payload": "hello"},
     ),
 ]
 
@@ -474,3 +519,48 @@ def test_messenger_group_resolver():
     ]:
         with pytest.raises(SystemExit, match=message):
             action()
+
+
+def test_personal_group_resolver():
+    resolver = cli.PersonalGroupResolver(
+        PersonalGroupClient(
+            {
+                "id": "group-id",
+                "interlocutorId": "user-id",
+                "type": "PERSONAL",
+                "canWriteMessage": True,
+            }
+        )
+    )
+    assert resolver.resolve("user-id") == "group-id"
+
+    for group, message in [
+        ([], "unexpected response"),
+        (
+            {"id": "group-id", "interlocutorId": "other"},
+            "interlocutor mismatch",
+        ),
+        (
+            {"id": "group-id", "interlocutorId": "user-id", "type": "GROUP"},
+            "not PERSONAL",
+        ),
+        (
+            {
+                "id": "group-id",
+                "interlocutorId": "user-id",
+                "type": "PERSONAL",
+                "canWriteMessage": False,
+            },
+            "cannot write",
+        ),
+        (
+            {
+                "interlocutorId": "user-id",
+                "type": "PERSONAL",
+                "canWriteMessage": True,
+            },
+            "missing group id",
+        ),
+    ]:
+        with pytest.raises(SystemExit, match=message):
+            cli.PersonalGroupResolver(PersonalGroupClient(group)).resolve("user-id")

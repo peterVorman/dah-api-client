@@ -17,6 +17,7 @@ from dah_api import (
     DEFAULT_REFERER,
     DEFAULT_USER_AGENT,
     MISSING_BEARER_TOKEN_MESSAGE,
+    ApartmentListRequest,
     AuthenticationReloginRequest,
     AuthenticationWebLoginRequest,
     BillDebtAnalyticsRequest,
@@ -29,6 +30,7 @@ from dah_api import (
     MessengerGroupMessagesRequest,
     MessengerGroupsPageRequest,
     MessengerMessageRequest,
+    MessengerPersonalGroupRequest,
     MoneyTransactionBankListRequest,
     PublicationSaveRequest,
     PublicationsSearchRequest,
@@ -76,6 +78,9 @@ class DahCli:
                 "feedback-order-status": lambda: self._update_or_preview_order_status(
                     args, client
                 ),
+                "apartment-list": lambda: client.list_apartments(
+                    self._build_apartment_list_request(args)
+                ),
                 "money-transaction-bank-list": lambda: (
                     client.list_money_transaction_bank(
                         self._build_money_transaction_bank_list_request(args)
@@ -88,6 +93,11 @@ class DahCli:
                 ),
                 "messenger-groups-page": lambda: client.list_messenger_groups(
                     self._build_messenger_groups_page_request(args)
+                ),
+                "messenger-personal-group-get": lambda: (
+                    client.get_messenger_personal_group(
+                        MessengerPersonalGroupRequest(args.interlocutor_id)
+                    )
                 ),
                 "messenger-send-message": lambda: self._send_or_preview_message(
                     args, client
@@ -409,6 +419,41 @@ class DahCli:
             help="Print the status request body without sending it.",
         )
 
+        apartment_parser = subparsers.add_parser(
+            "apartment-list",
+            help="POST /organization/v1/apartment/{associationId}/list",
+            description="Fetch apartments and owner metadata.",
+        )
+        apartment_parser.add_argument(
+            "--association-id",
+            default=os.getenv("DAH_ASSOCIATION_ID"),
+            help=(
+                "Association id path parameter. Defaults to DAH_ASSOCIATION_ID "
+                "or a single id resolved from get_access."
+            ),
+        )
+        apartment_parser.add_argument(
+            "--page",
+            type=int,
+            default=0,
+            help="0-based page number.",
+        )
+        apartment_parser.add_argument(
+            "--size",
+            type=int,
+            default=50,
+            help="Page size.",
+        )
+        apartment_body_group = apartment_parser.add_mutually_exclusive_group()
+        apartment_body_group.add_argument(
+            "--body",
+            help="Inline JSON body to send to the endpoint.",
+        )
+        apartment_body_group.add_argument(
+            "--body-file",
+            help="Path to a JSON file containing the request body.",
+        )
+
         money_transaction_parser = subparsers.add_parser(
             "money-transaction-bank-list",
             help="POST /accounting/v1/money/transaction/{associationId}/list/bank",
@@ -537,6 +582,10 @@ class DahCli:
             "--group-id",
             help="Messenger group id. Use this to skip chat-name lookup.",
         )
+        chat_target_group.add_argument(
+            "--interlocutor-id",
+            help="Owner/user id used to resolve a personal messenger group.",
+        )
         send_message_parser.add_argument(
             "--message-type",
             default="TEXT",
@@ -555,6 +604,16 @@ class DahCli:
         send_message_parser.add_argument(
             "message",
             help="Message text to send.",
+        )
+
+        personal_group_parser = subparsers.add_parser(
+            "messenger-personal-group-get",
+            help="GET /messenger/groups/personal/{interlocutorId}/get",
+            description="Fetch or create a personal messenger group by user id.",
+        )
+        personal_group_parser.add_argument(
+            "interlocutor_id",
+            help="Owner/user id for the personal messenger group.",
         )
 
         return parser
@@ -653,6 +712,17 @@ class DahCli:
             ),
         )
 
+    def _build_apartment_list_request(
+        self,
+        args: argparse.Namespace,
+    ) -> ApartmentListRequest:
+        return ApartmentListRequest(
+            association_id=args.association_id,
+            page=args.page,
+            size=args.size,
+            payload=load_payload(args, {}),
+        )
+
     def _build_money_transaction_bank_list_request(
         self,
         args: argparse.Namespace,
@@ -698,8 +768,10 @@ class DahCli:
         args: argparse.Namespace,
         client: DahApiClient,
     ) -> MessengerMessageRequest:
-        group_id = args.group_id
-        if group_id is None:
+        group_id = args.group_id or ""
+        if args.interlocutor_id:
+            group_id = PersonalGroupResolver(client).resolve(args.interlocutor_id)
+        elif not group_id:
             group_id = MessengerGroupResolver(client).resolve(args.chat_name)
 
         kwargs: dict[str, Any] = {}
@@ -776,6 +848,36 @@ class MessengerGroupResolver:
     @staticmethod
     def format_group_ids(matches: list[dict[str, Any]]) -> str:
         return ", ".join(str(match.get("id", "")) for match in matches)
+
+
+@dataclass(slots=True)
+class PersonalGroupResolver:
+    client: DahApiClient
+
+    def resolve(self, interlocutor_id: str) -> str:
+        group = self.client.get_messenger_personal_group(
+            MessengerPersonalGroupRequest(interlocutor_id)
+        )
+        self.validate_group(group, interlocutor_id)
+        return self.extract_group_id(group)
+
+    @staticmethod
+    def validate_group(group: Any, interlocutor_id: str) -> None:
+        if not isinstance(group, dict):
+            raise SystemExit("Unable to resolve personal chat: unexpected response.")
+        if group.get("interlocutorId") != interlocutor_id:
+            raise SystemExit("Unable to resolve personal chat: interlocutor mismatch.")
+        if group.get("type") != "PERSONAL":
+            raise SystemExit("Unable to resolve personal chat: group is not PERSONAL.")
+        if group.get("canWriteMessage") is not True:
+            raise SystemExit("Unable to resolve personal chat: cannot write message.")
+
+    @staticmethod
+    def extract_group_id(group: dict[str, Any]) -> str:
+        group_id = group.get("id")
+        if not isinstance(group_id, str) or not group_id:
+            raise SystemExit("Unable to resolve personal chat: missing group id.")
+        return group_id
 
 
 def load_payload(

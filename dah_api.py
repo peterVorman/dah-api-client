@@ -195,6 +195,14 @@ class FeedbackOrderStatusRequest:
 
 
 @dataclass(slots=True)
+class ApartmentListRequest:
+    association_id: str | None = None
+    page: int = 0
+    size: int = 50
+    payload: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class MoneyTransactionBankListRequest:
     association_id: str | None = None
     page: int = 0
@@ -215,6 +223,11 @@ class MessengerGroupsPageRequest:
     page: int = 0
     size: int = 50
     payload: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class MessengerPersonalGroupRequest:
+    interlocutor_id: str
 
 
 @dataclass(slots=True)
@@ -397,6 +410,25 @@ class DahApiClient:
             tab_id=tab_id,
         )
 
+    def list_apartments(
+        self,
+        request: ApartmentListRequest | None = None,
+        *,
+        tab_id: str | None = None,
+    ) -> Any:
+        list_request = request or ApartmentListRequest()
+        association_id = urllib.parse.quote(
+            list_request.association_id or self.get_default_association_id(),
+            safe="",
+        )
+        return self.request_json(
+            method="POST",
+            path=f"/organization/v1/apartment/{association_id}/list",
+            query={"page": list_request.page, "size": list_request.size},
+            payload=list_request.payload,
+            tab_id=tab_id,
+        )
+
     def list_money_transaction_bank(
         self,
         request: MoneyTransactionBankListRequest | None = None,
@@ -443,6 +475,19 @@ class DahApiClient:
             path="/messenger/groups/page",
             query={"page": groups_request.page, "size": groups_request.size},
             payload=groups_request.payload,
+            tab_id=tab_id,
+        )
+
+    def get_messenger_personal_group(
+        self,
+        request: MessengerPersonalGroupRequest,
+        *,
+        tab_id: str | None = None,
+    ) -> Any:
+        interlocutor_id = urllib.parse.quote(request.interlocutor_id, safe="")
+        return self.request_json(
+            method="GET",
+            path=f"/messenger/groups/personal/{interlocutor_id}/get",
             tab_id=tab_id,
         )
 
