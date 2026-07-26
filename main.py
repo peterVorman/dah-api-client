@@ -40,9 +40,15 @@ from dah_api import (
 )
 from debtor_notifications import (
     DEFAULT_DEBTOR_MESSAGE_TEMPLATE,
+    DEFAULT_NOTIFICATION_LEDGER_PATH,
     DebtorNotificationRequest,
     DebtorNotificationService,
     format_debtor_notification_report,
+)
+from debtor_reports import (
+    DebtorNextRequest,
+    DebtorReportService,
+    DebtorStructureRequest,
 )
 
 MISSING_MESSENGER_GROUP_ID_MESSAGE = (
@@ -81,6 +87,8 @@ class DahCli:
             "publication-get": lambda: client.get_publication(args.publication_id),
             "publication-save": lambda: self._save_or_preview_publication(args, client),
             "bill-debt-analytics": lambda: self._bill_debt_analytics(args, client),
+            "debtors-by-entrance": lambda: self._debtors_by_entrance(args, client),
+            "debtors-next": lambda: self._debtors_next(args, client),
             "debtors-notify": lambda: self._debtors_notify(args, client),
             "feedback-order-list": lambda: self._feedback_orders(args, client),
             "feedback-order-status": lambda: self._update_or_preview_order_status(
@@ -260,6 +268,24 @@ class DahCli:
             self._build_debtor_notification_request(args)
         )
         return format_debtor_notification_report(report, args.format)
+
+    def _debtors_next(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> Any:
+        return DebtorReportService(client).next_to_notify(
+            self._build_debtor_next_request(args)
+        )
+
+    def _debtors_by_entrance(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> Any:
+        return DebtorReportService(client).by_entrance(
+            self._build_debtor_structure_request(args)
+        )
 
     def _build_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
@@ -451,6 +477,12 @@ class DahCli:
             help="Maximum number of ready notifications to include.",
         )
         notify_parser.add_argument(
+            "--kind",
+            choices=("all", "apartment", "premise"),
+            default="all",
+            help="Debtor kind to include. Defaults to all.",
+        )
+        notify_parser.add_argument(
             "--apartment-number",
             action="append",
             default=[],
@@ -473,10 +505,63 @@ class DahCli:
             help="Apartment number confirmed for --send. Repeat for batches.",
         )
         notify_parser.add_argument(
+            "--max-send",
+            type=int,
+            help="Refuse --send when more than this many messages are ready.",
+        )
+        notify_parser.add_argument(
+            "--one-by-one",
+            action="store_true",
+            help="Shortcut for --max-send 1.",
+        )
+        add_ledger_arguments(notify_parser)
+        notify_parser.add_argument(
+            "--exclude-notified-today",
+            action="store_true",
+            help="Exclude apartments with sent records in today's ledger.",
+        )
+        notify_parser.add_argument(
             "--format",
             choices=("json", "table", "text"),
             default="json",
             help="Output format. Defaults to json.",
+        )
+
+        next_parser = subparsers.add_parser(
+            "debtors-next",
+            help="Show next ready debtor notifications.",
+            description="List next debtors ready for DAH personal notification.",
+        )
+        add_association_id_argument(next_parser)
+        add_debt_report_arguments(next_parser)
+        next_parser.add_argument(
+            "--exclude-notified-today",
+            action="store_true",
+            help="Exclude apartments with sent records in today's ledger.",
+        )
+        add_ledger_path_argument(next_parser)
+        next_parser.add_argument(
+            "--format",
+            choices=("json", "table", "text"),
+            default="json",
+            help="Output format. Defaults to json.",
+        )
+
+        structure_parser = subparsers.add_parser(
+            "debtors-by-entrance",
+            help="Analyze debtor debt by entrance and floor.",
+            description="Group current debtor debt by apartment entrance and floor.",
+        )
+        add_association_id_argument(structure_parser)
+        add_debt_report_arguments(
+            structure_parser,
+            default_kind="apartment",
+            include_limit=False,
+        )
+        structure_parser.add_argument(
+            "--area-adjusted",
+            action="store_true",
+            help="Include and sort by debt per known area.",
         )
 
         feedback_order_parser = subparsers.add_parser(
@@ -717,10 +802,44 @@ class DahCli:
             debt_filter_accruals=args.debt_filter_accruals,
             min_debt=args.min_debt,
             limit=args.limit,
+            kind=args.kind,
             apartment_numbers=args.apartment_number,
             confirm_apartment_numbers=args.confirm,
+            exclude_notified_today=args.exclude_notified_today,
+            ledger_path=args.ledger_path,
+            write_ledger=not args.no_ledger,
+            max_send=debtor_notify_max_send(args),
             message_template=args.message_template,
             send=args.send,
+        )
+
+    def _build_debtor_next_request(
+        self,
+        args: argparse.Namespace,
+    ) -> DebtorNextRequest:
+        return DebtorNextRequest(
+            association_id=args.association_id,
+            date=args.date,
+            debt_filter_accruals=args.debt_filter_accruals,
+            min_debt=args.min_debt,
+            limit=args.limit,
+            kind=args.kind,
+            exclude_notified_today=args.exclude_notified_today,
+            ledger_path=args.ledger_path,
+            output_format=args.format,
+        )
+
+    def _build_debtor_structure_request(
+        self,
+        args: argparse.Namespace,
+    ) -> DebtorStructureRequest:
+        return DebtorStructureRequest(
+            association_id=args.association_id,
+            date=args.date,
+            debt_filter_accruals=args.debt_filter_accruals,
+            min_debt=args.min_debt,
+            kind=args.kind,
+            area_adjusted=args.area_adjusted,
         )
 
     def _build_apartment_list_request(
@@ -943,6 +1062,64 @@ def add_save_env_argument(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Save returned auth tokens to .env.local without printing them.",
     )
+
+
+def add_debt_report_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    default_kind: str = "apartment",
+    include_limit: bool = True,
+) -> None:
+    parser.add_argument(
+        "--date",
+        help="Report date in YYYY-MM-DDTHH:MM. Defaults to the current local minute.",
+    )
+    parser.add_argument(
+        "--debt-filter-accruals",
+        type=int,
+        default=1,
+        help="Value for debtFilterAccruals in the default debt request body.",
+    )
+    parser.add_argument(
+        "--min-debt",
+        type=float,
+        default=0,
+        help="Minimum debt amount to include. Defaults to 0.",
+    )
+    if include_limit:
+        parser.add_argument(
+            "--limit",
+            type=int,
+            default=15,
+            help="Maximum number of rows to include. Defaults to 15.",
+        )
+    parser.add_argument(
+        "--kind",
+        choices=("all", "apartment", "premise"),
+        default=default_kind,
+        help=f"Debtor kind to include. Defaults to {default_kind}.",
+    )
+
+
+def add_ledger_arguments(parser: argparse.ArgumentParser) -> None:
+    add_ledger_path_argument(parser)
+    parser.add_argument(
+        "--no-ledger",
+        action="store_true",
+        help="Do not write notification results to the local ledger.",
+    )
+
+
+def add_ledger_path_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--ledger-path",
+        default=DEFAULT_NOTIFICATION_LEDGER_PATH,
+        help="Local JSONL notification ledger path.",
+    )
+
+
+def debtor_notify_max_send(args: argparse.Namespace) -> int | None:
+    return 1 if args.one_by_one else args.max_send
 
 
 def load_payload(

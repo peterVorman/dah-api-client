@@ -157,6 +157,16 @@ def args(command):
     return shlex.split(command)
 
 
+def apartment(number, entrance, floor, area):
+    return {
+        "number": number,
+        "entrance": entrance,
+        "floor": floor,
+        "area": area,
+        "owners": [{"user": {"userId": f"user-{number}", "userStatus": "ACTIVE"}}],
+    }
+
+
 def case(argv, response, call, calls, attrs=(), request=None, env=None):
     if request is None:
         request = {}
@@ -538,7 +548,8 @@ def test_cli_debtors_notify(cli_env, capsys):
     )
 
 
-def test_cli_debtors_notify_formats_and_confirm(cli_env, capsys):
+def test_cli_debtors_notify_formats_and_confirm(cli_env, capsys, tmp_path):
+    ledger_path = tmp_path / "ledger.jsonl"
     FakeClient.debt_response = {
         "rows": [{"apartmentName": "Квартира 55", "endBalance": -4203.9}]
     }
@@ -559,7 +570,7 @@ def test_cli_debtors_notify_formats_and_confirm(cli_env, capsys):
     failed_status = cli.DahCli().run(args("debtors-notify --send"))
     failed_streams = capsys.readouterr()
     status, response, _, client = run_cli(
-        args("debtors-notify --send --confirm 55"),
+        args(f"debtors-notify --send --confirm 55 --ledger-path {ledger_path}"),
         capsys,
     )
 
@@ -586,6 +597,75 @@ def test_cli_debtors_notify_formats_and_confirm(cli_env, capsys):
             "messenger-send-message",
         ],
     )
+    assert '"status": "sent"' in ledger_path.read_text(encoding="utf-8")
+
+
+def test_cli_debtors_next_and_entrance(cli_env, capsys, tmp_path):
+    ledger_path = tmp_path / "ledger.jsonl"
+    ledger_path.write_text(
+        '{"date":"2099-01-01","apartment":"55","status":"sent"}\n',
+        encoding="utf-8",
+    )
+    FakeClient.debt_response = {
+        "rows": [
+            {"apartmentName": "Квартира 55", "endBalance": -4203.9},
+            {"apartmentName": "Квартира 84", "endBalance": -3644.52},
+        ]
+    }
+    FakeClient.apartment_response = {
+        "content": [
+            apartment("55", "1", 2, 50),
+            apartment("84", "1", 3, 100),
+        ],
+        "last": True,
+    }
+
+    status, response, _, client = run_cli(
+        args(f"debtors-next --limit 2 --ledger-path {ledger_path}"),
+        capsys,
+    )
+    by_entrance = run_cli(
+        args("debtors-by-entrance --area-adjusted --kind apartment"),
+        capsys,
+    )[1]
+
+    assert (
+        status,
+        response["items"][0]["apartment"],
+        by_entrance["summary"]["debtPerArea"],
+        by_entrance["entrances"][0]["floors"][0]["floor"],
+        [name for name, _ in client.calls],
+    ) == (
+        0,
+        "55",
+        52.32,
+        "2",
+        ["apartment-list", "bill-debt-analytics"],
+    )
+
+
+def test_cli_debtors_notify_send_limits(cli_env, capsys):
+    FakeClient.debt_response = {
+        "rows": [
+            {"apartmentName": "Квартира 55", "endBalance": -4203.9},
+            {"apartmentName": "Квартира 84", "endBalance": -3644.52},
+        ]
+    }
+    FakeClient.apartment_response = {
+        "content": [
+            apartment("55", "1", 2, 50),
+            apartment("84", "1", 3, 100),
+        ],
+        "last": True,
+    }
+
+    status = cli.DahCli().run(
+        args("debtors-notify --send --confirm 55 --confirm 84 --one-by-one")
+    )
+    streams = capsys.readouterr()
+
+    assert status == 1
+    assert "max-send is 1" in streams.err
 
 
 def test_cli_auth_save_env_local(cli_env, capsys, monkeypatch, tmp_path):

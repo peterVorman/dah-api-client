@@ -37,7 +37,7 @@ authorized operation.
 For local code changes, run the narrowest useful check first:
 
 ```bash
-python3 -m py_compile dah_api.py auth_session.py debtor_notifications.py main.py
+python3 -m py_compile dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py
 ```
 
 ## Quality Gates
@@ -46,17 +46,17 @@ Before finishing changes to `dah_api.py`, `main.py`, tests, or CLI behavior, run
 the project gates with the active Python environment:
 
 ```bash
-python -m py_compile dah_api.py auth_session.py debtor_notifications.py main.py
+python -m py_compile dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py
 python -m pytest
 python -m ruff check .
 python -m flake8
 python -m isort --check-only .
-python -m pylint dah_api.py auth_session.py debtor_notifications.py main.py tests
+python -m pylint dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py tests
 python -m pyright
-python -m vulture dah_api.py auth_session.py debtor_notifications.py main.py tests --min-confidence 100 --ignore-names cli_env
+python -m vulture dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py tests --min-confidence 100 --ignore-names cli_env
 python -m bandit -q -r .
-python -m radon cc -s -a dah_api.py auth_session.py debtor_notifications.py main.py tests
-python -m radon cc -s -n B dah_api.py auth_session.py debtor_notifications.py main.py tests
+python -m radon cc -s -a dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py tests
+python -m radon cc -s -n B dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py tests
 ```
 
 Treat any output from the final `radon -n B` command as a failure: complexity

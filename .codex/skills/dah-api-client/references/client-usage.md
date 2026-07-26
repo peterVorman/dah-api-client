@@ -179,6 +179,9 @@ python3 main.py bill-debt-analytics --date 2026-07-08T15:10 --debt-filter-accrua
 python3 main.py debtors-notify --min-debt 3000 --limit 10
 python3 main.py debtors-notify --min-debt 3000 --format table
 python3 main.py debtors-notify --apartment-number 55 --send --confirm 55
+python3 main.py debtors-notify --send --one-by-one --confirm 55 --apartment-number 55
+python3 main.py debtors-next --exclude-notified-today --limit 15 --format table
+python3 main.py debtors-by-entrance --area-adjusted --kind apartment
 python3 main.py feedback-order-list
 python3 main.py feedback-order-status '<feedback order id>' --status DONE --dry-run
 python3 main.py apartment-list --page 0 --size 50
@@ -396,14 +399,35 @@ The workflow is:
 
 The command defaults to dry-run preview and returns `ready`, `sent`, and
 `skipped` arrays. It does not print owner names, phone numbers, or raw user ids.
-Use `--apartment-number` multiple times to target exact apartments, `--min-debt`
-to filter small debts, and `--limit` to cap the ready notifications.
+Use `--apartment-number` multiple times to target exact apartments, `--kind`
+to select `apartment`, `premise`, or `all`, `--min-debt` to filter small debts,
+and `--limit` to cap the ready notifications.
 
 Use `--format json`, `--format table`, or `--format text` for machine-readable
 or operator-readable output. `--send` requires `--confirm <apartment number>`
 for every ready notification; repeat `--confirm` for batches. Dry-run previews
 include readiness checks for exact apartment match, active owner presence, and
 personal chat writeability verification before send.
+
+Notification safety:
+
+- `--one-by-one` is a shortcut for `--max-send 1`.
+- `--max-send N` refuses a write if more than `N` notifications are ready.
+- Sent and skipped outcomes are written to `.dah-notifications.jsonl` by
+  default; the file is local and gitignored.
+- Use `--ledger-path <path>` to choose another local JSONL ledger.
+- Use `--no-ledger` to disable ledger writes for a single run.
+- Use `--exclude-notified-today` to skip apartments already sent today.
+
+`python3 main.py debtors-next` returns the next ready debtors without sending.
+It uses the same exact apartment and owner-readiness checks as
+`debtors-notify`; combine it with `--exclude-notified-today` to build the next
+operator queue.
+
+`python3 main.py debtors-by-entrance` groups current debtors by entrance and
+floor using apartment metadata from `apartment-list`. Use `--area-adjusted` to
+include `debtPerArea` and sort groups by debt per square meter instead of total
+debt.
 
 Default publications payload:
 
@@ -511,16 +535,16 @@ Endpoint extension checklist:
 For compile-level checks:
 
 ```bash
-python3 -m py_compile dah_api.py auth_session.py debtor_notifications.py main.py
+python3 -m py_compile dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py
 python3 -m pytest
 python3 -m ruff check .
 python3 -m flake8
 python3 -m isort --check-only .
-python3 -m pylint dah_api.py auth_session.py debtor_notifications.py main.py tests
+python3 -m pylint dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py tests
 python3 -m pyright
-python3 -m vulture dah_api.py auth_session.py debtor_notifications.py main.py tests --min-confidence 100 --ignore-names cli_env
+python3 -m vulture dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py tests --min-confidence 100 --ignore-names cli_env
 python3 -m bandit -q -r .
-python3 -m radon cc -s -n B dah_api.py auth_session.py debtor_notifications.py main.py tests
+python3 -m radon cc -s -n B dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py tests
 ```
 
 Additional static gates:

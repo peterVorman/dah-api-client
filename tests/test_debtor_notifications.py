@@ -15,6 +15,7 @@ from debtor_notifications import (
     missing_confirmations,
     rows_from,
     short_apartment_label,
+    today_iso,
     validate_personal_group,
 )
 
@@ -133,6 +134,32 @@ def test_debtor_notification_preview_and_send():
     ) == ("send", [{"apartment": "55", "recipients": 1}], 1, "group-user-55")
     with pytest.raises(DahRequestError, match="Missing --confirm"):
         service.run(DebtorNotificationRequest(apartment_numbers=["55"], send=True))
+
+
+def test_debtor_notification_ledger(tmp_path):
+    ledger_path = tmp_path / "ledger.jsonl"
+    client = NotificationClient()
+    service = DebtorNotificationService(client)
+    sent = service.run(
+        DebtorNotificationRequest(
+            apartment_numbers=["55"],
+            confirm_apartment_numbers=["55"],
+            ledger_path=str(ledger_path),
+            send=True,
+        )
+    )
+    excluded = service.run(
+        DebtorNotificationRequest(
+            apartment_numbers=["55"],
+            exclude_notified_today=True,
+            ledger_path=str(ledger_path),
+        )
+    )
+
+    assert sent["sent"] == [{"apartment": "55", "recipients": 1}]
+    assert excluded["ready"] == []
+    assert '"apartment": "55"' in ledger_path.read_text(encoding="utf-8")
+    assert f'"date": "{today_iso()}"' in ledger_path.read_text(encoding="utf-8")
 
 
 def test_debtor_notification_extract_helpers():
