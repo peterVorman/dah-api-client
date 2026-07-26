@@ -10,13 +10,24 @@ from debtor_notifications import (
     DEFAULT_NOTIFICATION_LEDGER_PATH,
     DebtorNotificationRequest,
     DebtorNotificationService,
+    apartment_for_debtor,
+    apartment_kind,
     debtor_kind,
     format_money,
 )
 
+NO_ENTRANCE = "Без підʼїзду"
+NO_FLOOR = "Без поверху"
 ENTRANCE_KEYS = ("entrance", "entranceNumber", "section", "sectionNumber")
 FLOOR_KEYS = ("floor", "floorNumber", "storey")
-AREA_KEYS = ("area", "totalArea", "square", "squareTotal", "apartmentArea")
+AREA_KEYS = (
+    "area",
+    "totalArea",
+    "square",
+    "squareTotal",
+    "apartmentArea",
+    "size",
+)
 
 
 @dataclass(slots=True)
@@ -84,16 +95,11 @@ class DebtorReportService:
         service = DebtorNotificationService(self.client)
         apartments = service.apartment_index(notification_request)
         debtors = service.debtors(notification_request)
-        entries = [
-            structure_entry(debtor, apartments.get(debtor["number"], {}))
-            for debtor in debtors
-        ]
-        entrances = [
-            entrance_summary(entrance, rows, request.area_adjusted)
-            for entrance, rows in grouped_by(entries, "entrance").items()
-        ]
+        entries = debt_entries(debtors, apartments)
+        area_entries = denominator_entries(apartments, request.kind)
+        entrances = entrance_summaries(entries, area_entries, request.area_adjusted)
         return {
-            "summary": summarize(entries, request.area_adjusted),
+            "summary": summarize(entries, area_entries, request.area_adjusted),
             "entrances": sorted_groups(entrances, request.area_adjusted),
         }
 
@@ -115,7 +121,45 @@ def next_row(row: dict[str, Any], table: bool) -> str:
     )
 
 
-def structure_entry(
+def debt_entries(
+    debtors: list[dict[str, Any]],
+    apartments: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        debt_entry(debtor, apartment_for_debtor(debtor, apartments))
+        for debtor in debtors
+    ]
+
+
+def denominator_entries(
+    apartments: dict[str, dict[str, Any]],
+    kind: str,
+) -> list[dict[str, Any]]:
+    return [
+        area_entry(apartment)
+        for apartment in unique_apartments(apartments)
+        if kind == "all" or apartment_kind(apartment) == kind
+    ]
+
+
+def entrance_summaries(
+    entries: list[dict[str, Any]],
+    area_entries: list[dict[str, Any]],
+    area_adjusted: bool,
+) -> list[dict[str, Any]]:
+    area_groups = grouped_by(area_entries, "entrance")
+    return [
+        entrance_summary(
+            entrance,
+            rows,
+            area_groups.get(entrance, []),
+            area_adjusted,
+        )
+        for entrance, rows in grouped_by(entries, "entrance").items()
+    ]
+
+
+def debt_entry(
     debtor: dict[str, Any],
     apartment: dict[str, Any],
 ) -> dict[str, Any]:
@@ -123,23 +167,40 @@ def structure_entry(
         "label": debtor["label"],
         "kind": debtor_kind(debtor["label"]),
         "debt": debtor["debt"],
-        "entrance": field_text(apartment, ENTRANCE_KEYS),
-        "floor": field_text(apartment, FLOOR_KEYS),
+        "entrance": entrance_text(apartment),
+        "floor": floor_text(apartment),
+        "area": field_number(apartment, AREA_KEYS),
+    }
+
+
+def area_entry(apartment: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "debt": 0.0,
+        "entrance": entrance_text(apartment),
+        "floor": floor_text(apartment),
         "area": field_number(apartment, AREA_KEYS),
     }
 
 
 def entrance_summary(
     entrance: str,
-    entries: list[dict[str, Any]],
+    debt_entries: list[dict[str, Any]],
+    area_entries: list[dict[str, Any]],
     area_adjusted: bool,
 ) -> dict[str, Any]:
     floors = [
-        {"floor": floor, **summarize(rows, area_adjusted)}
-        for floor, rows in grouped_by(entries, "floor").items()
+        {
+            "floor": floor,
+            **summarize(
+                rows,
+                grouped_by(area_entries, "floor").get(floor, []),
+                area_adjusted,
+            ),
+        }
+        for floor, rows in grouped_by(debt_entries, "floor").items()
     ]
     return {
-        **summarize(entries, area_adjusted),
+        **summarize(debt_entries, area_entries, area_adjusted),
         "entrance": entrance,
         "floors": sorted_groups(floors, area_adjusted),
     }
@@ -155,10 +216,14 @@ def grouped_by(
     return dict(sorted(groups.items()))
 
 
-def summarize(entries: list[dict[str, Any]], area_adjusted: bool) -> dict[str, Any]:
-    debt = round(sum(float(entry["debt"]) for entry in entries), 2)
-    area = round(sum(float(entry["area"] or 0) for entry in entries), 2)
-    summary = {"count": len(entries), "debt": debt, "area": area}
+def summarize(
+    debt_entries: list[dict[str, Any]],
+    area_entries: list[dict[str, Any]],
+    area_adjusted: bool,
+) -> dict[str, Any]:
+    debt = round(sum(float(entry["debt"]) for entry in debt_entries), 2)
+    area = round(sum(float(entry["area"] or 0) for entry in area_entries), 2)
+    summary = {"count": len(debt_entries), "debt": debt, "area": area}
     return with_area_adjustment(summary, area_adjusted)
 
 
@@ -186,14 +251,44 @@ def sorted_groups(
     )
 
 
+def unique_apartments(apartments: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    unique = {}
+    for apartment in apartments.values():
+        unique.setdefault(
+            apartment.get("id") or apartment_key_value(apartment),
+            apartment,
+        )
+    return list(unique.values())
+
+
+def apartment_key_value(apartment: dict[str, Any]) -> str:
+    return f"{apartment_kind(apartment)}:{apartment.get('number', '')}"
+
+
+def entrance_text(apartment: dict[str, Any]) -> str:
+    value = field_text(apartment, ENTRANCE_KEYS)
+    return value if value != "unknown" else NO_ENTRANCE
+
+
+def floor_text(apartment: dict[str, Any]) -> str:
+    value = field_text(apartment, FLOOR_KEYS)
+    return value if value != "unknown" else NO_FLOOR
+
+
 def field_text(apartment: dict[str, Any], keys: tuple[str, ...]) -> str:
     value = field_value(apartment, keys)
+    if isinstance(value, dict):
+        value = value.get("name")
     return str(value).strip() if value not in (None, "") else "unknown"
 
 
 def field_number(apartment: dict[str, Any], keys: tuple[str, ...]) -> float | None:
     value = field_value(apartment, keys)
-    return float(value) if isinstance(value, (int, float)) else None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str) and value.replace(".", "", 1).isdigit():
+        return float(value)
+    return None
 
 
 def field_value(apartment: dict[str, Any], keys: tuple[str, ...]) -> Any:

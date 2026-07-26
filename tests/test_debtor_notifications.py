@@ -169,6 +169,7 @@ def test_debtor_notification_extract_helpers():
         debtor_from({"apartmentName": "Нежитлове приміщення 175", "endBalance": -1}),
         debtor_from({"apartmentName": "Квартира 1", "endBalance": 1}),
         apartment_number("Квартира 119"),
+        apartment_number("Нежитлове приміщення 2,11"),
         short_apartment_label("Нежитлове приміщення 175"),
         message_apartment_label("Приміщення 175"),
         active_owner_user_ids(
@@ -182,6 +183,7 @@ def test_debtor_notification_extract_helpers():
         {"label": "Приміщення 175", "number": "175", "debt": 1.0},
         None,
         "119",
+        "2,11",
         "Приміщення 175",
         "приміщенню 175",
         ["u"],

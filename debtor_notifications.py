@@ -19,7 +19,10 @@ from dah_api import (
     default_bill_debt_analytics_payload,
 )
 
-APARTMENT_NUMBER_RE = re.compile(r"\d+")
+APARTMENT_NUMBER_RE = re.compile(
+    r"(?:Квартира|приміщення)\s+(\d+(?:,\d+)?(?:-\d+)?)\s*$",
+    re.IGNORECASE,
+)
 DEFAULT_NOTIFICATION_LEDGER_PATH = ".dah-notifications.jsonl"
 DEFAULT_DEBTOR_MESSAGE_TEMPLATE = (
     "Добрий день. За даними DAH по {apartment_label} є заборгованість "
@@ -95,6 +98,7 @@ class DebtorNotificationService:
             for apartment in rows_from(response):
                 if isinstance(apartment.get("number"), str):
                     index.setdefault(apartment["number"], apartment)
+                    index.setdefault(apartment_key(apartment), apartment)
             if apartment_pages_finished(response, page):
                 break
         return index
@@ -123,7 +127,11 @@ class DebtorNotificationService:
         debtors: list[dict[str, Any]],
     ) -> list[DebtorNotification]:
         notifications = [
-            self._notification(debtor, apartments[debtor["number"]], request)
+            self._notification(
+                debtor,
+                apartment_for_debtor(debtor, apartments),
+                request,
+            )
             for debtor in debtors
             if self._can_notify(debtor, apartments)
         ]
@@ -202,7 +210,7 @@ class DebtorNotificationService:
         debtor: dict[str, Any],
         apartments: dict[str, dict[str, Any]],
     ) -> bool:
-        apartment = apartments.get(debtor["number"])
+        apartment = apartment_for_debtor(debtor, apartments)
         return bool(apartment and active_owner_user_ids(apartment))
 
     @staticmethod
@@ -241,7 +249,7 @@ class DebtorNotificationService:
         debtor: dict[str, Any],
         apartments: dict[str, dict[str, Any]],
     ) -> dict[str, Any]:
-        apartment = apartments.get(debtor["number"])
+        apartment = apartment_for_debtor(debtor, apartments)
         reason = "exact apartment match not found"
         if apartment and not active_owner_user_ids(apartment):
             reason = "active owner user id not found"
@@ -288,11 +296,32 @@ def debtor_from(row: dict[str, Any]) -> dict[str, Any] | None:
 
 def apartment_number(name: str) -> str:
     match = APARTMENT_NUMBER_RE.search(name)
-    return match.group(0) if match else name.strip()
+    return match.group(1) if match else name.strip()
 
 
 def debtor_kind(label: str) -> str:
     return "apartment" if label.startswith("Квартира ") else "premise"
+
+
+def apartment_for_debtor(
+    debtor: dict[str, Any],
+    apartments: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    key = f"{debtor_kind(debtor['label'])}:{debtor['number']}"
+    return apartments.get(key) or apartments.get(debtor["number"], {})
+
+
+def apartment_key(apartment: dict[str, Any]) -> str:
+    return f"{apartment_kind(apartment)}:{apartment['number']}"
+
+
+def apartment_kind(apartment: dict[str, Any]) -> str:
+    type_value = apartment.get("type")
+    if isinstance(type_value, dict):
+        return "apartment" if type_value.get("type") == "APARTMENT" else "premise"
+    if isinstance(type_value, str):
+        return "apartment" if type_value == "APARTMENT" else "premise"
+    return debtor_kind(str(apartment.get("name", "Квартира ")))
 
 
 def short_apartment_label(name: str) -> str:
