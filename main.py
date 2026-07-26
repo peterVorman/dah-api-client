@@ -87,8 +87,12 @@ class DahCli:
             "publication-get": lambda: client.get_publication(args.publication_id),
             "publication-save": lambda: self._save_or_preview_publication(args, client),
             "bill-debt-analytics": lambda: self._bill_debt_analytics(args, client),
-            "debtors-by-entrance": lambda: self._debtors_by_entrance(args, client),
-            "debtors-next": lambda: self._debtors_next(args, client),
+            "debtors-by-entrance": lambda: DebtorReportService(client).by_entrance(
+                self._build_debtor_structure_request(args)
+            ),
+            "debtors-next": lambda: DebtorReportService(client).next_to_notify(
+                self._build_debtor_next_request(args)
+            ),
             "debtors-notify": lambda: self._debtors_notify(args, client),
             "feedback-order-list": lambda: self._feedback_orders(args, client),
             "feedback-order-status": lambda: self._update_or_preview_order_status(
@@ -269,24 +273,6 @@ class DahCli:
         )
         return format_debtor_notification_report(report, args.format)
 
-    def _debtors_next(
-        self,
-        args: argparse.Namespace,
-        client: DahApiClient,
-    ) -> Any:
-        return DebtorReportService(client).next_to_notify(
-            self._build_debtor_next_request(args)
-        )
-
-    def _debtors_by_entrance(
-        self,
-        args: argparse.Namespace,
-        client: DahApiClient,
-    ) -> Any:
-        return DebtorReportService(client).by_entrance(
-            self._build_debtor_structure_request(args)
-        )
-
     def _build_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
             description="Send requests to the DAH cabinet API.",
@@ -453,35 +439,7 @@ class DahCli:
             ),
         )
         add_association_id_argument(notify_parser)
-        notify_parser.add_argument(
-            "--date",
-            help=(
-                "Report date in YYYY-MM-DDTHH:MM. Defaults to the current local minute."
-            ),
-        )
-        notify_parser.add_argument(
-            "--debt-filter-accruals",
-            type=int,
-            default=1,
-            help="Value for debtFilterAccruals in the default debt request body.",
-        )
-        notify_parser.add_argument(
-            "--min-debt",
-            type=float,
-            default=0,
-            help="Minimum debt amount to include. Defaults to 0.",
-        )
-        notify_parser.add_argument(
-            "--limit",
-            type=int,
-            help="Maximum number of ready notifications to include.",
-        )
-        notify_parser.add_argument(
-            "--kind",
-            choices=("all", "apartment", "premise"),
-            default="all",
-            help="Debtor kind to include. Defaults to all.",
-        )
+        add_debt_report_arguments(notify_parser, default_kind="all", default_limit=None)
         notify_parser.add_argument(
             "--apartment-number",
             action="append",
@@ -797,12 +755,7 @@ class DahCli:
         args: argparse.Namespace,
     ) -> DebtorNotificationRequest:
         return DebtorNotificationRequest(
-            association_id=args.association_id,
-            date=args.date,
-            debt_filter_accruals=args.debt_filter_accruals,
-            min_debt=args.min_debt,
-            limit=args.limit,
-            kind=args.kind,
+            **debtor_request_kwargs(args),
             apartment_numbers=args.apartment_number,
             confirm_apartment_numbers=args.confirm,
             exclude_notified_today=args.exclude_notified_today,
@@ -818,12 +771,7 @@ class DahCli:
         args: argparse.Namespace,
     ) -> DebtorNextRequest:
         return DebtorNextRequest(
-            association_id=args.association_id,
-            date=args.date,
-            debt_filter_accruals=args.debt_filter_accruals,
-            min_debt=args.min_debt,
-            limit=args.limit,
-            kind=args.kind,
+            **debtor_request_kwargs(args),
             exclude_notified_today=args.exclude_notified_today,
             ledger_path=args.ledger_path,
             output_format=args.format,
@@ -834,11 +782,7 @@ class DahCli:
         args: argparse.Namespace,
     ) -> DebtorStructureRequest:
         return DebtorStructureRequest(
-            association_id=args.association_id,
-            date=args.date,
-            debt_filter_accruals=args.debt_filter_accruals,
-            min_debt=args.min_debt,
-            kind=args.kind,
+            **debtor_request_kwargs(args, include_limit=False),
             area_adjusted=args.area_adjusted,
         )
 
@@ -1069,6 +1013,7 @@ def add_debt_report_arguments(
     *,
     default_kind: str = "apartment",
     include_limit: bool = True,
+    default_limit: int | None = 15,
 ) -> None:
     parser.add_argument(
         "--date",
@@ -1087,11 +1032,14 @@ def add_debt_report_arguments(
         help="Minimum debt amount to include. Defaults to 0.",
     )
     if include_limit:
+        help_text = "Maximum number of rows to include."
+        if default_limit is not None:
+            help_text += f" Defaults to {default_limit}."
         parser.add_argument(
             "--limit",
             type=int,
-            default=15,
-            help="Maximum number of rows to include. Defaults to 15.",
+            default=default_limit,
+            help=help_text,
         )
     parser.add_argument(
         "--kind",
@@ -1120,6 +1068,23 @@ def add_ledger_path_argument(parser: argparse.ArgumentParser) -> None:
 
 def debtor_notify_max_send(args: argparse.Namespace) -> int | None:
     return 1 if args.one_by_one else args.max_send
+
+
+def debtor_request_kwargs(
+    args: argparse.Namespace,
+    *,
+    include_limit: bool = True,
+) -> dict[str, Any]:
+    kwargs = {
+        "association_id": args.association_id,
+        "date": args.date,
+        "debt_filter_accruals": args.debt_filter_accruals,
+        "min_debt": args.min_debt,
+        "kind": args.kind,
+    }
+    if include_limit:
+        kwargs["limit"] = args.limit
+    return kwargs
 
 
 def load_payload(

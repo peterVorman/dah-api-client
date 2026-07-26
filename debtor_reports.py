@@ -47,103 +47,72 @@ class DebtorReportService:
         self.client = client
 
     def next_to_notify(self, request: DebtorNextRequest) -> Any:
-        notification_request = debtor_notification_request(request)
-        report = DebtorNotificationService(self.client).run(notification_request)
-        rows = next_rows(report)
+        report = DebtorNotificationService(self.client).run(
+            DebtorNotificationRequest(
+                association_id=request.association_id,
+                date=request.date,
+                debt_filter_accruals=request.debt_filter_accruals,
+                min_debt=request.min_debt,
+                limit=request.limit,
+                kind=request.kind,
+                exclude_notified_today=request.exclude_notified_today,
+                ledger_path=request.ledger_path,
+            )
+        )
+        rows = [
+            {
+                "apartment": row["apartment"],
+                "debt": row["debt"],
+                "recipients": row["recipients"],
+            }
+            for row in report["ready"]
+        ]
         if request.output_format == "json":
             return {"items": rows, "skipped": report["skipped"]}
         if request.output_format == "table":
-            return next_table(rows)
-        return next_text(rows)
+            return format_next_rows(rows, table=True)
+        return format_next_rows(rows, table=False)
 
     def by_entrance(self, request: DebtorStructureRequest) -> dict[str, Any]:
-        notification_request = debtor_structure_notification_request(request)
+        notification_request = DebtorNotificationRequest(
+            association_id=request.association_id,
+            date=request.date,
+            debt_filter_accruals=request.debt_filter_accruals,
+            min_debt=request.min_debt,
+            kind=request.kind,
+        )
         service = DebtorNotificationService(self.client)
         apartments = service.apartment_index(notification_request)
         debtors = service.debtors(notification_request)
-        entries = structure_entries(debtors, apartments)
-        grouped = grouped_structure(entries, request.area_adjusted)
+        entries = [
+            structure_entry(debtor, apartments.get(debtor["number"], {}))
+            for debtor in debtors
+        ]
+        entrances = [
+            entrance_summary(entrance, rows, request.area_adjusted)
+            for entrance, rows in grouped_by(entries, "entrance").items()
+        ]
         return {
-            "summary": structure_summary(entries, request.area_adjusted),
-            "entrances": grouped,
+            "summary": summarize(entries, request.area_adjusted),
+            "entrances": sorted_groups(entrances, request.area_adjusted),
         }
 
 
-def debtor_notification_request(
-    request: DebtorNextRequest,
-) -> DebtorNotificationRequest:
-    return DebtorNotificationRequest(
-        association_id=request.association_id,
-        date=request.date,
-        debt_filter_accruals=request.debt_filter_accruals,
-        min_debt=request.min_debt,
-        limit=request.limit,
-        kind=request.kind,
-        exclude_notified_today=request.exclude_notified_today,
-        ledger_path=request.ledger_path,
-    )
-
-
-def debtor_structure_notification_request(
-    request: DebtorStructureRequest,
-) -> DebtorNotificationRequest:
-    return DebtorNotificationRequest(
-        association_id=request.association_id,
-        date=request.date,
-        debt_filter_accruals=request.debt_filter_accruals,
-        min_debt=request.min_debt,
-        kind=request.kind,
-    )
-
-
-def next_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        {
-            "apartment": row["apartment"],
-            "debt": row["debt"],
-            "recipients": row["recipients"],
-        }
-        for row in report["ready"]
-    ]
-
-
-def next_table(rows: list[dict[str, Any]]) -> str:
+def format_next_rows(rows: list[dict[str, Any]], *, table: bool) -> str:
     if not rows:
         return "No ready debtors to notify."
-    lines = ["apartment | debt | recipients", "--- | ---: | ---:"]
-    lines.extend(next_table_row(row) for row in rows)
-    return "\n".join(lines)
+    prefix = ["apartment | debt | recipients", "--- | ---: | ---:"] if table else []
+    return "\n".join([*prefix, *(next_row(row, table) for row in rows)])
 
 
-def next_table_row(row: dict[str, Any]) -> str:
-    return (
-        f"{row['apartment']} | {format_money(float(row['debt']))} | "
-        f"{row['recipients']}"
-    )
-
-
-def next_text(rows: list[dict[str, Any]]) -> str:
-    if not rows:
-        return "No ready debtors to notify."
-    return "\n".join(next_text_row(row) for row in rows)
-
-
-def next_text_row(row: dict[str, Any]) -> str:
+def next_row(row: dict[str, Any], table: bool) -> str:
+    debt = format_money(float(row["debt"]))
+    if table:
+        return f"{row['apartment']} | {debt} | {row['recipients']}"
     return (
         f"- Квартира {row['apartment']}: "
-        f"{format_money(float(row['debt']))} грн, "
-        f"отримувачів: {row['recipients']}"
+        f"{debt} грн, отримувачів: {row['recipients']}"
     )
-
-
-def structure_entries(
-    debtors: list[dict[str, Any]],
-    apartments: dict[str, dict[str, Any]],
-) -> list[dict[str, Any]]:
-    return [
-        structure_entry(debtor, apartments.get(debtor["number"], {}))
-        for debtor in debtors
-    ]
 
 
 def structure_entry(
@@ -160,86 +129,59 @@ def structure_entry(
     }
 
 
-def grouped_structure(
-    entries: list[dict[str, Any]],
-    area_adjusted: bool,
-) -> list[dict[str, Any]]:
-    entrances = sorted({entry["entrance"] for entry in entries})
-    groups = [
-        entrance_group(entries, entrance, area_adjusted)
-        for entrance in entrances
-    ]
-    return sort_groups(groups, area_adjusted)
-
-
-def entrance_group(
-    entries: list[dict[str, Any]],
+def entrance_summary(
     entrance: str,
+    entries: list[dict[str, Any]],
     area_adjusted: bool,
 ) -> dict[str, Any]:
-    rows = [entry for entry in entries if entry["entrance"] == entrance]
+    floors = [
+        {"floor": floor, **summarize(rows, area_adjusted)}
+        for floor, rows in grouped_by(entries, "floor").items()
+    ]
     return {
-        **structure_summary(rows, area_adjusted),
+        **summarize(entries, area_adjusted),
         "entrance": entrance,
-        "floors": floor_groups(rows, area_adjusted),
+        "floors": sorted_groups(floors, area_adjusted),
     }
 
 
-def floor_groups(
+def grouped_by(
     entries: list[dict[str, Any]],
-    area_adjusted: bool,
-) -> list[dict[str, Any]]:
-    floors = sorted({entry["floor"] for entry in entries})
-    groups = [floor_group(entries, floor, area_adjusted) for floor in floors]
-    return sort_groups(groups, area_adjusted)
+    key: str,
+) -> dict[str, list[dict[str, Any]]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for entry in entries:
+        groups.setdefault(str(entry[key]), []).append(entry)
+    return dict(sorted(groups.items()))
 
 
-def floor_group(
-    entries: list[dict[str, Any]],
-    floor: str,
-    area_adjusted: bool,
-) -> dict[str, Any]:
-    rows = [entry for entry in entries if entry["floor"] == floor]
-    return {**structure_summary(rows, area_adjusted), "floor": floor}
+def summarize(entries: list[dict[str, Any]], area_adjusted: bool) -> dict[str, Any]:
+    debt = round(sum(float(entry["debt"]) for entry in entries), 2)
+    area = round(sum(float(entry["area"] or 0) for entry in entries), 2)
+    summary = {"count": len(entries), "debt": debt, "area": area}
+    return with_area_adjustment(summary, area_adjusted)
 
 
-def structure_summary(
-    entries: list[dict[str, Any]],
-    area_adjusted: bool,
-) -> dict[str, Any]:
-    debt = sum(float(entry["debt"]) for entry in entries)
-    area = sum(float(entry["area"] or 0) for entry in entries)
-    summary = {"count": len(entries), "debt": round(debt, 2), "area": round(area, 2)}
-    return adjusted_summary(summary, area_adjusted)
-
-
-def adjusted_summary(
+def with_area_adjustment(
     summary: dict[str, Any],
     area_adjusted: bool,
 ) -> dict[str, Any]:
     if area_adjusted:
-        summary["debtPerArea"] = debt_per_area(summary)
+        area = float(summary["area"])
+        summary["debtPerArea"] = (
+            round(float(summary["debt"]) / area, 2) if area else None
+        )
     return summary
 
 
-def debt_per_area(summary: dict[str, Any]) -> float | None:
-    area = float(summary["area"])
-    return round(float(summary["debt"]) / area, 2) if area else None
-
-
-def sort_value(group: dict[str, Any], area_adjusted: bool) -> float:
-    if area_adjusted:
-        return float(group.get("debtPerArea") or 0)
-    return float(group["debt"])
-
-
-def sort_groups(
+def sorted_groups(
     groups: list[dict[str, Any]],
     area_adjusted: bool,
 ) -> list[dict[str, Any]]:
+    sort_key = "debtPerArea" if area_adjusted else "debt"
     return sorted(
         groups,
-        key=lambda group: sort_value(group, area_adjusted),
+        key=lambda group: float(group.get(sort_key) or 0),
         reverse=True,
     )
 
@@ -255,7 +197,4 @@ def field_number(apartment: dict[str, Any], keys: tuple[str, ...]) -> float | No
 
 
 def field_value(apartment: dict[str, Any], keys: tuple[str, ...]) -> Any:
-    for key in keys:
-        if key in apartment:
-            return apartment[key]
-    return None
+    return next((apartment[key] for key in keys if key in apartment), None)

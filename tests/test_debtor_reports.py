@@ -5,8 +5,7 @@ from debtor_reports import (
     DebtorStructureRequest,
     field_number,
     field_text,
-    next_table,
-    next_text,
+    format_next_rows,
 )
 
 
@@ -63,10 +62,10 @@ def test_next_to_notify_excludes_ledger(tmp_path):
 
 def test_next_to_notify_formats():
     rows = [{"apartment": "55", "debt": 1000.0, "recipients": 1}]
-    assert "55 | 1 000,00 | 1" in next_table(rows)
-    assert "Квартира 55" in next_text(rows)
-    assert next_table([]) == "No ready debtors to notify."
-    assert next_text([]) == "No ready debtors to notify."
+    assert "55 | 1 000,00 | 1" in format_next_rows(rows, table=True)
+    assert "Квартира 55" in format_next_rows(rows, table=False)
+    assert format_next_rows([], table=True) == "No ready debtors to notify."
+    assert format_next_rows([], table=False) == "No ready debtors to notify."
 
 
 def test_by_entrance_area_adjusted():

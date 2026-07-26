@@ -75,15 +75,46 @@ class DebtorNotificationService:
         }
 
     def debtors(self, request: DebtorNotificationRequest) -> list[dict[str, Any]]:
-        debtors = self._debtors(request)
         excluded = notified_apartment_numbers(request)
-        return [debtor for debtor in debtors if debtor["number"] not in excluded]
+        selected = [d for d in self._debtors(request) if d["number"] not in excluded]
+        return sorted(selected, key=lambda item: item["debt"], reverse=True)
 
     def apartment_index(
         self,
         request: DebtorNotificationRequest,
     ) -> dict[str, dict[str, Any]]:
-        return self._apartment_index(request)
+        index: dict[str, dict[str, Any]] = {}
+        for page in range(100):
+            response = self.client.list_apartments(
+                ApartmentListRequest(
+                    association_id=request.association_id,
+                    page=page,
+                    size=100,
+                )
+            )
+            for apartment in rows_from(response):
+                if isinstance(apartment.get("number"), str):
+                    index.setdefault(apartment["number"], apartment)
+            if apartment_pages_finished(response, page):
+                break
+        return index
+
+    def _debtors(self, request: DebtorNotificationRequest) -> list[dict[str, Any]]:
+        response = self.client.get_bill_debt_analytics(
+            BillDebtAnalyticsRequest(
+                association_id=request.association_id,
+                payload=default_bill_debt_analytics_payload(
+                    date=request.date,
+                    debt_filter_accruals=request.debt_filter_accruals,
+                ),
+            )
+        )
+        return [
+            debtor
+            for row in rows_from(response)
+            if (debtor := debtor_from(row))
+            if self._selected(debtor, request)
+        ]
 
     def _build_notifications(
         self,
@@ -103,50 +134,11 @@ class DebtorNotificationService:
         apartments: dict[str, dict[str, Any]],
         debtors: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        skipped = [
+        return [
             self._skip_reason(debtor, apartments)
             for debtor in debtors
             if not self._can_notify(debtor, apartments)
         ]
-        return skipped
-
-    def _debtors(self, request: DebtorNotificationRequest) -> list[dict[str, Any]]:
-        response = self.client.get_bill_debt_analytics(
-            BillDebtAnalyticsRequest(
-                association_id=request.association_id,
-                payload=default_bill_debt_analytics_payload(
-                    date=request.date,
-                    debt_filter_accruals=request.debt_filter_accruals,
-                ),
-            )
-        )
-        debtors = [
-            debtor
-            for row in rows_from(response)
-            if (debtor := debtor_from(row))
-        ]
-        selected = [debtor for debtor in debtors if self._selected(debtor, request)]
-        return sorted(selected, key=lambda item: item["debt"], reverse=True)
-
-    def _apartment_index(
-        self,
-        request: DebtorNotificationRequest,
-    ) -> dict[str, dict[str, Any]]:
-        index: dict[str, dict[str, Any]] = {}
-        for page in range(100):
-            response = self.client.list_apartments(
-                ApartmentListRequest(
-                    association_id=request.association_id,
-                    page=page,
-                    size=100,
-                )
-            )
-            for apartment in rows_from(response):
-                if isinstance(apartment.get("number"), str):
-                    index.setdefault(apartment["number"], apartment)
-            if apartment_pages_finished(response, page):
-                break
-        return index
 
     def _send(self, notification: DebtorNotification) -> dict[str, Any]:
         for owner_user_id in notification.owner_user_ids:
@@ -175,7 +167,7 @@ class DebtorNotificationService:
             return []
         ledger = NotificationLedger(request.ledger_path)
         sent = [self._send_and_record(request, ledger, item) for item in notifications]
-        record_skipped(request, ledger, skipped)
+        ledger.record_skipped(request, skipped)
         return sent
 
     def _send_and_record(
@@ -187,9 +179,9 @@ class DebtorNotificationService:
         try:
             result = self._send(notification)
         except DahRequestError:
-            record_notification(request, ledger, notification, "failed")
+            ledger.record(request, notification, "failed")
             raise
-        record_notification(request, ledger, notification, "sent", result)
+        ledger.record(request, notification, "sent", result)
         return result
 
     @staticmethod
@@ -384,14 +376,15 @@ def validate_send_limit(
     request: DebtorNotificationRequest,
     notifications: list[DebtorNotification],
 ) -> None:
-    if request.send and request.max_send is not None:
-        validate_max_send_count(request.max_send, len(notifications))
-
-
-def validate_max_send_count(max_send: int, count: int) -> None:
-    if count > max_send:
+    too_many = (
+        request.send
+        and request.max_send is not None
+        and len(notifications) > request.max_send
+    )
+    if too_many:
         raise DahRequestError(
-            f"Refusing to send {count} messages; max-send is {max_send}."
+            f"Refusing to send {len(notifications)} messages; "
+            f"max-send is {request.max_send}."
         )
 
 
@@ -474,6 +467,33 @@ class NotificationLedger:
                 records.append(record)
         return records
 
+    def record_skipped(
+        self,
+        request: DebtorNotificationRequest,
+        skipped: list[dict[str, Any]],
+    ) -> None:
+        for item in skipped:
+            self.record(request, item, "skipped")
+
+    def record(
+        self,
+        request: DebtorNotificationRequest,
+        source: Any,
+        status: str,
+        result: dict[str, Any] | None = None,
+    ) -> None:
+        if request.write_ledger:
+            self.append(
+                {
+                    "date": today_iso(),
+                    "apartment": record_apartment(source),
+                    "debt": record_debt(source),
+                    "status": status,
+                    "recipients": result.get("recipients", 0) if result else 0,
+                    "debtFilterAccruals": request.debt_filter_accruals,
+                }
+            )
+
 
 def ledger_record(line: str) -> dict[str, Any] | None:
     try:
@@ -497,58 +517,13 @@ def today_iso() -> str:
     return date.today().isoformat()
 
 
-def record_skipped(
-    request: DebtorNotificationRequest,
-    ledger: NotificationLedger,
-    skipped: list[dict[str, Any]],
-) -> None:
-    for item in skipped:
-        record_skip(request, ledger, item)
-
-
-def record_skip(
-    request: DebtorNotificationRequest,
-    ledger: NotificationLedger,
-    item: dict[str, Any],
-) -> None:
-    if request.write_ledger:
-        ledger.append(notification_record(request, item, "skipped"))
-
-
-def record_notification(
-    request: DebtorNotificationRequest,
-    ledger: NotificationLedger,
-    notification: DebtorNotification,
-    status: str,
-    result: dict[str, Any] | None = None,
-) -> None:
-    if request.write_ledger:
-        ledger.append(notification_record(request, notification, status, result))
-
-
-def notification_record(
-    request: DebtorNotificationRequest,
-    source: Any,
-    status: str,
-    result: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return {
-        "date": today_iso(),
-        "apartment": source_apartment(source),
-        "debt": source_debt(source),
-        "status": status,
-        "recipients": result.get("recipients", 0) if result else 0,
-        "debtFilterAccruals": request.debt_filter_accruals,
-    }
-
-
-def source_apartment(source: Any) -> str:
+def record_apartment(source: Any) -> str:
     if isinstance(source, DebtorNotification):
         return source.apartment_number
     return str(source.get("apartment", ""))
 
 
-def source_debt(source: Any) -> float:
+def record_debt(source: Any) -> float:
     if isinstance(source, DebtorNotification):
         return round(source.debt, 2)
     return float(source.get("debt", 0))
