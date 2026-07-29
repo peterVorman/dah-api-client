@@ -1,4 +1,4 @@
-"""Debtor notification workflow for DAH messenger."""
+"""Debtor notification workflow for DAH messaging channels."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from dah_api import (
     DahRequestError,
     MessengerMessageRequest,
     MessengerPersonalGroupRequest,
+    TenantNotificationRequest,
     default_bill_debt_analytics_payload,
 )
 
@@ -46,6 +47,7 @@ class DebtorNotificationRequest:
     write_ledger: bool = True
     max_send: int | None = None
     message_template: str = DEFAULT_DEBTOR_MESSAGE_TEMPLATE
+    notification_method: str = "auto"
     send: bool = False
 
 
@@ -55,7 +57,9 @@ class DebtorNotification:
     apartment_label: str
     debt: float
     message: str
-    owner_user_ids: list[str]
+    recipient_ids: list[str]
+    notification_method: str
+    association_id: str | None = None
 
 
 class DebtorNotificationService:
@@ -63,13 +67,14 @@ class DebtorNotificationService:
         self.client = client
 
     def run(self, request: DebtorNotificationRequest) -> dict[str, Any]:
+        ledger = NotificationLedger(request.ledger_path)
         apartments = self.apartment_index(request)
         debtors = self.debtors(request)
-        notifications = self._build_notifications(request, apartments, debtors)
-        skipped = self._skipped_debtors(apartments, debtors)
+        notifications = self._build_notifications(request, apartments, debtors, ledger)
+        skipped = self._skipped_debtors(request, apartments, debtors, ledger)
         validate_send_confirmation(request, notifications)
         validate_send_limit(request, notifications)
-        sent = self._send_notifications(request, notifications, skipped)
+        sent = self._send_notifications(request, notifications, skipped, ledger)
         return {
             "mode": "send" if request.send else "dry-run",
             "ready": [self._preview(notification) for notification in notifications],
@@ -125,31 +130,43 @@ class DebtorNotificationService:
         request: DebtorNotificationRequest,
         apartments: dict[str, dict[str, Any]],
         debtors: list[dict[str, Any]],
+        ledger: "NotificationLedger",
     ) -> list[DebtorNotification]:
         notifications = [
             self._notification(
                 debtor,
                 apartment_for_debtor(debtor, apartments),
                 request,
+                ledger,
             )
             for debtor in debtors
-            if self._can_notify(debtor, apartments)
+            if self._can_notify(debtor, apartments, request, ledger)
         ]
         return notifications[: request.limit] if request.limit else notifications
 
     def _skipped_debtors(
         self,
+        request: DebtorNotificationRequest,
         apartments: dict[str, dict[str, Any]],
         debtors: list[dict[str, Any]],
+        ledger: "NotificationLedger",
     ) -> list[dict[str, Any]]:
         return [
-            self._skip_reason(debtor, apartments)
+            self._skip_reason(debtor, apartments, request, ledger)
             for debtor in debtors
-            if not self._can_notify(debtor, apartments)
+            if not self._can_notify(debtor, apartments, request, ledger)
         ]
 
     def _send(self, notification: DebtorNotification) -> dict[str, Any]:
-        for owner_user_id in notification.owner_user_ids:
+        if notification.notification_method == "tenant":
+            return self._send_tenant_notifications(notification)
+        return self._send_messenger_notifications(notification)
+
+    def _send_messenger_notifications(
+        self,
+        notification: DebtorNotification,
+    ) -> dict[str, Any]:
+        for owner_user_id in notification.recipient_ids:
             group = self.client.get_messenger_personal_group(
                 MessengerPersonalGroupRequest(owner_user_id)
             )
@@ -162,7 +179,24 @@ class DebtorNotificationService:
             )
         return {
             "apartment": notification.apartment_number,
-            "recipients": len(notification.owner_user_ids),
+            "recipients": len(notification.recipient_ids),
+        }
+
+    def _send_tenant_notifications(
+        self,
+        notification: DebtorNotification,
+    ) -> dict[str, Any]:
+        for tenant_id in notification.recipient_ids:
+            self.client.send_tenant_notification(
+                TenantNotificationRequest(
+                    association_id=notification.association_id,
+                    tenant_id=tenant_id,
+                    text=notification.message,
+                )
+            )
+        return {
+            "apartment": notification.apartment_number,
+            "recipients": len(notification.recipient_ids),
         }
 
     def _send_notifications(
@@ -170,10 +204,10 @@ class DebtorNotificationService:
         request: DebtorNotificationRequest,
         notifications: list[DebtorNotification],
         skipped: list[dict[str, Any]],
+        ledger: "NotificationLedger",
     ) -> list[dict[str, Any]]:
         if not request.send:
             return []
-        ledger = NotificationLedger(request.ledger_path)
         sent = [self._send_and_record(request, ledger, item) for item in notifications]
         ledger.record_skipped(request, skipped)
         return sent
@@ -209,16 +243,21 @@ class DebtorNotificationService:
     def _can_notify(
         debtor: dict[str, Any],
         apartments: dict[str, dict[str, Any]],
+        request: DebtorNotificationRequest,
+        ledger: "NotificationLedger",
     ) -> bool:
         apartment = apartment_for_debtor(debtor, apartments)
-        return bool(apartment and active_owner_user_ids(apartment))
+        method = notification_method_for(debtor, request, ledger)
+        return bool(apartment and recipient_ids(apartment, method))
 
     @staticmethod
     def _notification(
         debtor: dict[str, Any],
         apartment: dict[str, Any],
         request: DebtorNotificationRequest,
+        ledger: "NotificationLedger",
     ) -> DebtorNotification:
+        method = notification_method_for(debtor, request, ledger)
         return DebtorNotification(
             apartment_number=debtor["number"],
             apartment_label=debtor["label"],
@@ -227,7 +266,9 @@ class DebtorNotificationService:
                 apartment_label=message_apartment_label(debtor["label"]),
                 debt=format_money(debtor["debt"]),
             ),
-            owner_user_ids=active_owner_user_ids(apartment),
+            recipient_ids=recipient_ids(apartment, method),
+            notification_method=method,
+            association_id=request.association_id,
         )
 
     @staticmethod
@@ -235,12 +276,9 @@ class DebtorNotificationService:
         return {
             "apartment": notification.apartment_number,
             "debt": round(notification.debt, 2),
-            "recipients": len(notification.owner_user_ids),
-            "checks": {
-                "exactApartmentFound": True,
-                "activeOwnerFound": True,
-                "personalChatWritable": "checked before send",
-            },
+            "recipients": len(notification.recipient_ids),
+            "notificationMethod": notification.notification_method,
+            "checks": notification_checks(notification.notification_method),
             "message": notification.message,
         }
 
@@ -248,14 +286,18 @@ class DebtorNotificationService:
     def _skip_reason(
         debtor: dict[str, Any],
         apartments: dict[str, dict[str, Any]],
+        request: DebtorNotificationRequest,
+        ledger: "NotificationLedger",
     ) -> dict[str, Any]:
         apartment = apartment_for_debtor(debtor, apartments)
+        method = notification_method_for(debtor, request, ledger)
         reason = "exact apartment match not found"
-        if apartment and not active_owner_user_ids(apartment):
-            reason = "active owner user id not found"
+        if apartment and not recipient_ids(apartment, method):
+            reason = f"active owner {recipient_name(method)} id not found"
         return {
             "apartment": debtor["number"],
             "debt": round(debtor["debt"], 2),
+            "notificationMethod": method,
             "reason": reason,
         }
 
@@ -343,13 +385,57 @@ def active_owner_user_ids(apartment: dict[str, Any]) -> list[str]:
     return user_ids
 
 
+def active_owner_tenant_ids(apartment: dict[str, Any]) -> list[str]:
+    tenant_ids = []
+    for owner in active_owners(apartment):
+        append_unique_user_id(tenant_ids, owner.get("tenantId"))
+    return tenant_ids
+
+
+def recipient_ids(apartment: dict[str, Any], notification_method: str) -> list[str]:
+    if notification_method == "tenant":
+        return active_owner_tenant_ids(apartment)
+    return active_owner_user_ids(apartment)
+
+
+def notification_checks(notification_method: str) -> dict[str, Any]:
+    checks = {"exactApartmentFound": True, "activeOwnerFound": True}
+    if notification_method == "tenant":
+        return {**checks, "tenantNotificationWritable": "checked by send"}
+    return {**checks, "personalChatWritable": "checked before send"}
+
+
+def notification_method_for(
+    debtor: dict[str, Any],
+    request: DebtorNotificationRequest,
+    ledger: "NotificationLedger",
+) -> str:
+    if request.notification_method != "auto":
+        return request.notification_method
+    if debtor["number"] in ledger.messenger_notified_numbers():
+        return "tenant"
+    return "messenger"
+
+
+def recipient_name(notification_method: str) -> str:
+    return "tenant" if notification_method == "tenant" else "user"
+
+
 def active_owner_users(apartment: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        owner["user"]
+        for owner in active_owners(apartment)
+        if isinstance(owner.get("user"), dict)
+    ]
+
+
+def active_owners(apartment: dict[str, Any]) -> list[dict[str, Any]]:
     owners = apartment.get("owners") or []
     return [
-        user
+        owner
         for owner in owners
         if isinstance(owner, dict)
-        if is_active_user(user := owner.get("user"))
+        if is_active_user(owner.get("user"))
     ]
 
 
@@ -486,6 +572,13 @@ class NotificationLedger:
             if is_sent_record_for_date(record, record_date)
         }
 
+    def messenger_notified_numbers(self) -> set[str]:
+        return {
+            record["apartment"]
+            for record in self.records()
+            if is_messenger_sent_record(record)
+        }
+
     def records(self) -> list[dict[str, Any]]:
         if not self.path.exists():
             return []
@@ -520,6 +613,7 @@ class NotificationLedger:
                     "status": status,
                     "recipients": result.get("recipients", 0) if result else 0,
                     "debtFilterAccruals": request.debt_filter_accruals,
+                    "notificationMethod": record_notification_method(request, source),
                 }
             )
 
@@ -534,6 +628,13 @@ def ledger_record(line: str) -> dict[str, Any] | None:
 
 def is_sent_record_for_date(record: dict[str, Any], record_date: str) -> bool:
     return record.get("date") == record_date and record.get("status") == "sent"
+
+
+def is_messenger_sent_record(record: dict[str, Any]) -> bool:
+    return (
+        record.get("status") == "sent"
+        and record.get("notificationMethod", "messenger") == "messenger"
+    )
 
 
 def notified_apartment_numbers(request: DebtorNotificationRequest) -> set[str]:
@@ -556,3 +657,14 @@ def record_debt(source: Any) -> float:
     if isinstance(source, DebtorNotification):
         return round(source.debt, 2)
     return float(source.get("debt", 0))
+
+
+def record_notification_method(
+    request: DebtorNotificationRequest,
+    source: Any,
+) -> str:
+    if isinstance(source, DebtorNotification):
+        return source.notification_method
+    if isinstance(source, dict) and isinstance(source.get("notificationMethod"), str):
+        return source["notificationMethod"]
+    return request.notification_method

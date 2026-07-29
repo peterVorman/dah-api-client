@@ -447,14 +447,15 @@ class DahCli:
 
         notify_parser = subparsers.add_parser(
             "debtors-notify",
-            help="Notify debtors through DAH personal messenger chats.",
+            help="Notify debtors through DAH messenger or tenant notifications.",
             description=(
-                "Build or send direct DAH messenger notifications for debtors. "
-                "Defaults to dry-run preview; use --send to write."
+                "Build or send DAH debtor notifications. Defaults to dry-run "
+                "preview and automatic channel selection; use --send to write."
             ),
         )
         add_association_id_argument(notify_parser)
         add_debt_report_arguments(notify_parser, default_kind="all", default_limit=None)
+        add_notification_method_argument(notify_parser)
         notify_parser.add_argument(
             "--apartment-number",
             action="append",
@@ -503,10 +504,13 @@ class DahCli:
         next_parser = subparsers.add_parser(
             "debtors-next",
             help="Show next ready debtor notifications.",
-            description="List next debtors ready for DAH personal notification.",
+            description=(
+                "List next debtors ready for the selected DAH notification method."
+            ),
         )
         add_association_id_argument(next_parser)
         add_debt_report_arguments(next_parser)
+        add_notification_method_argument(next_parser)
         next_parser.add_argument(
             "--exclude-notified-today",
             action="store_true",
@@ -813,6 +817,7 @@ class DahCli:
             write_ledger=not args.no_ledger,
             max_send=debtor_notify_max_send(args),
             message_template=args.message_template,
+            notification_method=args.notification_method,
             send=args.send,
         )
 
@@ -825,6 +830,7 @@ class DahCli:
             exclude_notified_today=args.exclude_notified_today,
             ledger_path=args.ledger_path,
             output_format=args.format,
+            notification_method=args.notification_method,
         )
 
     def _build_debtor_structure_request(
@@ -1122,6 +1128,18 @@ def add_debt_report_arguments(
         choices=("all", "apartment", "premise"),
         default=default_kind,
         help=f"Debtor kind to include. Defaults to {default_kind}.",
+    )
+
+
+def add_notification_method_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--notification-method",
+        choices=("messenger", "tenant", "auto"),
+        default="auto",
+        help=(
+            "Notification transport. Defaults to auto, which switches current "
+            "debtors with previous messenger sends to tenant notifications."
+        ),
     )
 
 

@@ -187,8 +187,12 @@ python3 main.py bill-debt-analytics --date 2026-07-08T15:10 --debt-filter-accrua
 python3 main.py debtors-notify --min-debt 3000 --limit 10
 python3 main.py debtors-notify --min-debt 3000 --format table
 python3 main.py debtors-notify --apartment-number 55 --send --confirm 55
+python3 main.py debtors-notify --notification-method auto --apartment-number 55
+python3 main.py debtors-notify --notification-method tenant --apartment-number 55 --send --confirm 55
 python3 main.py debtors-notify --send --one-by-one --confirm 55 --apartment-number 55
 python3 main.py debtors-next --exclude-notified-today --limit 15 --format table
+python3 main.py debtors-next --notification-method auto --limit 15
+python3 main.py debtors-next --notification-method tenant --limit 15
 python3 main.py debtors-by-entrance --area-adjusted --kind apartment
 python3 main.py feedback-order-list
 python3 main.py feedback-order-status '<feedback order id>' --status DONE --dry-run
@@ -421,17 +425,31 @@ Use `python3 main.py messenger-send-message --interlocutor-id '<owner user id>' 
 
 ## Debtor Notifications
 
-`python3 main.py debtors-notify` builds individual DAH messenger notifications
-from bill debt analytics and apartment owner data.
+`python3 main.py debtors-notify` builds individual DAH debtor notifications
+from bill debt analytics and apartment owner data. It supports three
+notification modes:
+
+- `--notification-method auto`: default; uses messenger for first contact, then
+  tenant notifications for current debtors that already have a successful
+  messenger send in the local ledger.
+- `--notification-method messenger`: resolves active owner `userId`
+  values to personal messenger groups and sends `/messenger/messages`.
+- `--notification-method tenant`: uses active owner `tenantId` values and sends
+  `/communication/v1/client/notification/<associationId>/tenant/send`, using the
+  same message template for `text` and generated `textHtml`.
 
 The workflow is:
 
 1. Fetch bill debt analytics with the requested `debtFilterAccruals`.
 2. Fetch apartments through `list_apartments()`.
 3. Match each debtor to an apartment by exact apartment `number`.
-4. Use active `owners[].user.userId` values only.
-5. Resolve each personal group with `get_messenger_personal_group()`.
-6. Send with `send_messenger_message()` only when `--send` is explicitly passed.
+4. Use only active owners.
+5. Select a notification method. In `auto`, any current debtor with a prior
+   successful messenger ledger record is escalated to tenant notification; old
+   ledger records without `notificationMethod` are treated as messenger records.
+6. Select recipients from `owners[].user.userId` for messenger or
+   `owners[].tenantId` for tenant notifications.
+7. Send only when `--send` is explicitly passed.
 
 The command defaults to dry-run preview and returns `ready`, `sent`, and
 `skipped` arrays. It does not print owner names, phone numbers, or raw user ids.
@@ -443,7 +461,7 @@ Use `--format json`, `--format table`, or `--format text` for machine-readable
 or operator-readable output. `--send` requires `--confirm <apartment number>`
 for every ready notification; repeat `--confirm` for batches. Dry-run previews
 include readiness checks for exact apartment match, active owner presence, and
-personal chat writeability verification before send.
+the selected notification method.
 
 Notification safety:
 

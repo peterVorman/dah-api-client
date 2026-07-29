@@ -118,7 +118,7 @@ class PersonalGroupClient:
 
 
 @pytest.fixture
-def cli_env(monkeypatch):
+def cli_env(monkeypatch, tmp_path):
     FakeClient.instances = []
     FakeClient.access_error = None
     FakeClient.debt_response = None
@@ -134,6 +134,7 @@ def cli_env(monkeypatch):
     monkeypatch.delenv("DAH_REFRESH_TOKEN", raising=False)
     monkeypatch.delenv("DAH_LOGIN", raising=False)
     monkeypatch.delenv("DAH_PASSWORD", raising=False)
+    monkeypatch.chdir(tmp_path)
 
 
 def run_cli(argv, capsys):
@@ -608,6 +609,93 @@ def test_cli_debtors_notify(cli_env, capsys):
     )
 
 
+def test_cli_debtors_notify_tenant_method(cli_env, capsys):
+    FakeClient.debt_response = {
+        "rows": [{"apartmentName": "Квартира 55", "endBalance": -4203.9}]
+    }
+    FakeClient.apartment_response = {
+        "content": [
+            {
+                "number": "55",
+                "owners": [
+                    {
+                        "tenantId": "tenant-id",
+                        "user": {"userId": "user-id", "userStatus": "ACTIVE"},
+                    }
+                ],
+            }
+        ],
+        "last": True,
+    }
+
+    status, response, _, client = run_cli(
+        args(
+            "debtors-notify --notification-method tenant "
+            "--apartment-number 55 --send --confirm 55"
+        ),
+        capsys,
+    )
+    call, request = last_call(client)
+
+    assert (
+        status,
+        response["ready"][0]["notificationMethod"],
+        response["sent"],
+        call,
+        request.tenant_id,
+        [name for name, _ in client.calls],
+    ) == (
+        0,
+        "tenant",
+        [{"apartment": "55", "recipients": 1}],
+        "tenant-notification-send",
+        "tenant-id",
+        ["apartment-list", "bill-debt-analytics", "tenant-notification-send"],
+    )
+
+
+def test_cli_debtors_notify_auto_method(cli_env, capsys, tmp_path):
+    ledger_path = tmp_path / "ledger.jsonl"
+    ledger_path.write_text(
+        '{"date":"2026-07-28","apartment":"55","status":"sent"}\n',
+        encoding="utf-8",
+    )
+    FakeClient.debt_response = {
+        "rows": [{"apartmentName": "Квартира 55", "endBalance": -4203.9}]
+    }
+    FakeClient.apartment_response = {
+        "content": [
+            {
+                "number": "55",
+                "owners": [
+                    {
+                        "tenantId": "tenant-id",
+                        "user": {"userId": "user-id", "userStatus": "ACTIVE"},
+                    }
+                ],
+            }
+        ],
+        "last": True,
+    }
+
+    status, response, _, client = run_cli(
+        args(f"debtors-notify --apartment-number 55 --ledger-path {ledger_path}"),
+        capsys,
+    )
+
+    assert (
+        status,
+        response["ready"][0]["notificationMethod"],
+        response["ready"][0]["recipients"],
+        [name for name, _ in client.calls],
+    ) == (
+        0,
+        "tenant",
+        1,
+        ["apartment-list", "bill-debt-analytics"],
+    )
+
+
 def test_cli_debtors_notify_formats_and_confirm(cli_env, capsys, tmp_path):
     ledger_path = tmp_path / "ledger.jsonl"
     FakeClient.debt_response = {
@@ -681,7 +769,10 @@ def test_cli_debtors_next_and_entrance(cli_env, capsys, tmp_path):
     }
 
     status, response, _, client = run_cli(
-        args(f"debtors-next --limit 2 --ledger-path {ledger_path}"),
+        args(
+            "debtors-next --notification-method messenger "
+            f"--limit 2 --ledger-path {ledger_path}"
+        ),
         capsys,
     )
     by_entrance = run_cli(

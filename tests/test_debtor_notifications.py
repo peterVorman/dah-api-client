@@ -1,6 +1,10 @@
 import pytest
 
-from dah_api import DahRequestError, MessengerMessageRequest
+from dah_api import (
+    DahRequestError,
+    MessengerMessageRequest,
+    TenantNotificationRequest,
+)
 from debtor_notifications import (
     DebtorNotificationRequest,
     DebtorNotificationService,
@@ -46,7 +50,8 @@ class NotificationClient:
                             "user": {
                                 "userId": "user-55",
                                 "userStatus": "ACTIVE",
-                            }
+                            },
+                            "tenantId": "tenant-55",
                         }
                     ],
                 },
@@ -78,8 +83,14 @@ class NotificationClient:
         self.sent.append(request)
         return {"ok": True}
 
+    def send_tenant_notification(self, request):
+        assert isinstance(request, TenantNotificationRequest)
+        self.sent.append(request)
+        return {}
 
-def test_debtor_notification_preview_and_send():
+
+def test_debtor_notification_preview_and_send(tmp_path):
+    ledger_path = tmp_path / "ledger.jsonl"
     client = NotificationClient()
     service = DebtorNotificationService(client)
     preview = service.run(
@@ -88,12 +99,14 @@ def test_debtor_notification_preview_and_send():
             date="2026-07-24T10:00",
             min_debt=1000,
             apartment_numbers=["55", "84"],
+            ledger_path=str(ledger_path),
         )
     )
     sent = service.run(
         DebtorNotificationRequest(
             apartment_numbers=["55"],
             confirm_apartment_numbers=["55"],
+            ledger_path=str(ledger_path),
             send=True,
         )
     )
@@ -105,6 +118,7 @@ def test_debtor_notification_preview_and_send():
                 "apartment": "55",
                 "debt": 4203.9,
                 "recipients": 1,
+                "notificationMethod": "messenger",
                 "checks": {
                     "exactApartmentFound": True,
                     "activeOwnerFound": True,
@@ -122,6 +136,7 @@ def test_debtor_notification_preview_and_send():
             {
                 "apartment": "84",
                 "debt": 3644.52,
+                "notificationMethod": "messenger",
                 "reason": "active owner user id not found",
             }
         ],
@@ -133,7 +148,75 @@ def test_debtor_notification_preview_and_send():
         client.sent[0].group_id,
     ) == ("send", [{"apartment": "55", "recipients": 1}], 1, "group-user-55")
     with pytest.raises(DahRequestError, match="Missing --confirm"):
-        service.run(DebtorNotificationRequest(apartment_numbers=["55"], send=True))
+        service.run(
+            DebtorNotificationRequest(
+                apartment_numbers=["55"],
+                ledger_path=str(ledger_path),
+                send=True,
+            )
+        )
+
+
+def test_debtor_notification_tenant_method():
+    client = NotificationClient()
+    report = DebtorNotificationService(client).run(
+        DebtorNotificationRequest(
+            apartment_numbers=["55"],
+            confirm_apartment_numbers=["55"],
+            notification_method="tenant",
+            send=True,
+        )
+    )
+
+    assert (
+        report["ready"][0]["notificationMethod"],
+        report["ready"][0]["checks"],
+        report["sent"],
+        len(client.sent),
+        client.sent[0].tenant_id,
+    ) == (
+        "tenant",
+        {
+            "exactApartmentFound": True,
+            "activeOwnerFound": True,
+            "tenantNotificationWritable": "checked by send",
+        },
+        [{"apartment": "55", "recipients": 1}],
+        1,
+        "tenant-55",
+    )
+
+
+def test_debtor_notification_auto_escalates_after_messenger(tmp_path):
+    ledger_path = tmp_path / "ledger.jsonl"
+    ledger_path.write_text(
+        '{"date":"2026-07-28","apartment":"55","status":"sent"}\n',
+        encoding="utf-8",
+    )
+    client = NotificationClient()
+    report = DebtorNotificationService(client).run(
+        DebtorNotificationRequest(
+            apartment_numbers=["55"],
+            confirm_apartment_numbers=["55"],
+            ledger_path=str(ledger_path),
+            notification_method="auto",
+            send=True,
+        )
+    )
+
+    assert (
+        report["ready"][0]["notificationMethod"],
+        report["sent"],
+        len(client.sent),
+        client.sent[0].tenant_id,
+        '"notificationMethod": "tenant"' in ledger_path.read_text(encoding="utf-8"),
+    ) == (
+        "tenant",
+        [{"apartment": "55", "recipients": 1}],
+        1,
+        "tenant-55",
+        True,
+    )
 
 
 def test_debtor_notification_ledger(tmp_path):

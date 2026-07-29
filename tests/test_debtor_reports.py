@@ -57,7 +57,14 @@ def test_next_to_notify_excludes_ledger(tmp_path):
         )
     )
 
-    assert report["items"] == [{"apartment": "55", "debt": 1000.0, "recipients": 1}]
+    assert report["items"] == [
+        {
+            "apartment": "55",
+            "debt": 1000.0,
+            "recipients": 1,
+            "notificationMethod": "messenger",
+        }
+    ]
     assert report["skipped"] == []
 
 
