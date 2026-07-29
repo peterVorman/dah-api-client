@@ -1,6 +1,6 @@
 ---
 name: dah-api-client
-description: Work with the DAH cabinet API through the local Python client in the current repository. Use when Codex needs to query DAH/Dah Online API data, call organization access, apartment list, web login, relogin, or exit authentication, search/get/create/edit publications, accounting bill debt analytics, debtor notification workflow, feedback order list, bank money transaction list, messenger groups page, messenger personal group get, messenger group messages, or send messenger message endpoints, inspect DAH API responses, create small API scripts, or extend the existing dah_api.py client and main.py CLI instead of writing a separate HTTP client.
+description: Work with the DAH cabinet API through the local Python client in the current repository. Use when Codex needs to query DAH/Dah Online API data, call organization access, apartment list, web login, relogin, or exit authentication, search/get/create/edit publications, accounting bill debt analytics, debtor notification workflow, feedback order list, tenant APP/EMAIL/SMS notification send, bank money transaction list, messenger groups page, messenger personal group get, messenger group messages, or send messenger message endpoints, inspect DAH API responses, create small API scripts, or extend the existing dah_api.py client and main.py CLI instead of writing a separate HTTP client.
 ---
 
 # DAH API Client
@@ -84,7 +84,7 @@ When adding a DAH endpoint:
 
 For live API calls, warn the user that the request will contact `api.dah-online.com` if that is not already obvious from the request. Use read-oriented endpoints by default.
 
-For write endpoints, such as sending messenger messages, prefer `--dry-run` first and only send when the user explicitly asks to perform the write.
+For write endpoints, such as sending messenger messages or tenant notifications, prefer `--dry-run`/preview first and only send when the user explicitly asks to perform the write.
 
 If a live call returns `401 Unauthorized`, treat it as an authentication/token freshness issue first. Ask for or use a fresh `DAH_BEARER_TOKEN`; do not hard-code tokens.
 

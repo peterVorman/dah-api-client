@@ -81,6 +81,7 @@ from dah_api import (
     MessengerPersonalGroupRequest,
     PublicationSaveRequest,
     PublicationsSearchRequest,
+    TenantNotificationRequest,
     default_bill_debt_analytics_payload,
 )
 
@@ -135,6 +136,13 @@ try:
             status="DONE",
         )
     )
+    tenant_notification = client.send_tenant_notification(
+        TenantNotificationRequest(
+            association_id="<association id>",
+            tenant_id="<tenant id>",
+            text="Добрий день.\nПросимо погасити борг.",
+        )
+    )
     apartments = client.list_apartments(ApartmentListRequest(page=0, size=50))
     bank_transactions = client.list_money_transaction_bank(
         MoneyTransactionBankListRequest(page=0, size=50)
@@ -184,6 +192,8 @@ python3 main.py debtors-next --exclude-notified-today --limit 15 --format table
 python3 main.py debtors-by-entrance --area-adjusted --kind apartment
 python3 main.py feedback-order-list
 python3 main.py feedback-order-status '<feedback order id>' --status DONE --dry-run
+python3 main.py tenant-notification-send --tenant-id '<tenant id>' --text 'Повідомлення'
+python3 main.py tenant-notification-send --tenant-id '<tenant id>' --text 'Повідомлення' --send --confirm-tenant-id '<tenant id>'
 python3 main.py apartment-list --page 0 --size 50
 python3 main.py money-transaction-bank-list --direction EXPENSE --from-date 2026-07-01T00:00:00 --page 0 --size 50
 python3 main.py messenger-groups-page --page 0 --size 50
@@ -324,6 +334,32 @@ Default status payload:
 
 Use `python3 main.py feedback-order-status '<feedback order id>' --dry-run` to
 preview the body before changing a DAH feedback order status.
+
+`DahApiClient.send_tenant_notification()` calls:
+
+```text
+POST /communication/v1/client/notification/<associationId>/tenant/send
+```
+
+Default tenant notification payload:
+
+```json
+{
+  "details": [
+    {"type": "APP", "enabled": true},
+    {"type": "EMAIL", "enabled": true},
+    {"type": "SMS", "enabled": true}
+  ],
+  "tenantId": "<tenant id>",
+  "text": "<plain text>",
+  "textHtml": "<p>escaped text with <br> for line breaks</p>"
+}
+```
+
+Use `python3 main.py tenant-notification-send --tenant-id '<tenant id>' --text '...'`
+to preview the body. Add `--send --confirm-tenant-id '<tenant id>'` only after
+the tenant id and message are confirmed. Pass `--text-html` or `--body-file`
+when DAH needs explicit HTML.
 
 `DahApiClient.list_money_transaction_bank()` calls:
 

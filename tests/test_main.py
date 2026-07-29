@@ -67,6 +67,9 @@ class FakeClient:
     def update_feedback_order_status(self, request):
         return self.record("feedback-order-status", request)
 
+    def send_tenant_notification(self, request):
+        return self.record("tenant-notification-send", request)
+
     def list_apartments(self, request):
         if type(self).apartment_response is not None:
             self.calls.append(("apartment-list", request))
@@ -335,6 +338,37 @@ CASES = [
         None,
         calls=[],
     ),
+    case(
+        [
+            "tenant-notification-send",
+            "--tenant-id",
+            "tenant-id",
+            "--text",
+            "Hello\nPay",
+        ],
+        {
+            "details": [
+                {"type": "APP", "enabled": True},
+                {"type": "EMAIL", "enabled": True},
+                {"type": "SMS", "enabled": True},
+            ],
+            "tenantId": "tenant-id",
+            "text": "Hello\nPay",
+            "textHtml": "<p>Hello<br>Pay</p>",
+        },
+        None,
+        calls=[],
+    ),
+    single(
+        args(
+            "tenant-notification-send --association-id assoc-id "
+            "--tenant-id tenant-id --text Hello --send --confirm-tenant-id tenant-id"
+        ),
+        {"method": "tenant-notification-send"},
+        "tenant-notification-send",
+        ("association_id", "tenant_id", "text"),
+        {"association_id": "assoc-id", "tenant_id": "tenant-id", "text": "Hello"},
+    ),
     single(
         args('apartment-list --association-id assoc-id --page 1 --size 25'),
         {"method": "apartment-list"},
@@ -510,6 +544,32 @@ def test_cli_errors_payloads_and_main(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli, "DahCli", ExitCli)
     assert cli.main() == 7
+
+
+def test_cli_tenant_notification_guards(cli_env, capsys):
+    FakeClient.access_error = DahRequestError("offline")
+    status, response, _, _ = run_cli(args("auth-status"), capsys)
+    assert (status, response["accessCheck"]) == (
+        0,
+        {"ok": False, "error": "offline"},
+    )
+
+    for command, message in [
+        ("tenant-notification-send --text Hello", "Missing tenant id"),
+        ("tenant-notification-send --tenant-id tenant-id", "Missing tenant"),
+        (
+            "tenant-notification-send --body '{\"tenantId\":\"tenant-id\","
+            "\"text\":\"Hello\",\"details\":{}}'",
+            "details must be a JSON array",
+        ),
+        (
+            "tenant-notification-send --tenant-id tenant-id --text Hello "
+            "--send --confirm-tenant-id other",
+            "Missing --confirm-tenant-id",
+        ),
+    ]:
+        with pytest.raises(SystemExit, match=message):
+            cli.DahCli().run(args(command))
 
 
 def test_cli_debtors_notify(cli_env, capsys):

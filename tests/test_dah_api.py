@@ -91,12 +91,16 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
         dah_api.AuthenticationReloginRequest("refresh", "device").to_payload(),
         dah_api.FeedbackOrderListRequest().payload,
         dah_api.FeedbackOrderStatusRequest("order-id").to_payload(),
+        dah_api.TenantNotificationRequest("tenant-id", "line 1\nline 2").to_payload(),
         dah_api.ApartmentListRequest().payload,
         dah_api.MessengerGroupMessagesRequest("g").payload,
         dah_api.MessengerGroupsPageRequest().payload,
         dah_api.MessengerPersonalGroupRequest("user-id").interlocutor_id,
         dah_api.MoneyTransactionBankListRequest().payload,
         dah_api.PublicationSaveRequest({"title": "Hi"}).to_payload("assoc-id"),
+        dah_api.PublicationSaveRequest({"associationId": "explicit"}).to_payload(
+            "assoc-id"
+        ),
         dah_api.MessengerMessageRequest("g", "hi").to_payload(),
     ) == (
         "file-token",
@@ -127,12 +131,23 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
         },
         {},
         {"status": "DONE"},
+        {
+            "details": [
+                {"type": "APP", "enabled": True},
+                {"type": "EMAIL", "enabled": True},
+                {"type": "SMS", "enabled": True},
+            ],
+            "tenantId": "tenant-id",
+            "text": "line 1\nline 2",
+            "textHtml": "<p>line 1<br>line 2</p>",
+        },
         {},
         {},
         {},
         "user-id",
         {"direction": "EXPENSE"},
         {"associationId": "assoc-id", "title": "Hi"},
+        {"associationId": "explicit"},
         {
             "createTime": 1234,
             "groupId": "g",
@@ -212,6 +227,14 @@ def test_endpoint_requests():
     client.update_feedback_order_status(
         dah_api.FeedbackOrderStatusRequest("order/id", "DONE")
     )
+    client.send_tenant_notification(
+        dah_api.TenantNotificationRequest(
+            "tenant/id",
+            "hello",
+            association_id="tenant/assoc",
+            text_html="<p>hello</p>",
+        )
+    )
     client.list_apartments(
         dah_api.ApartmentListRequest("apartment/id", 1, 2, {"apartments": True})
     )
@@ -248,6 +271,7 @@ def test_endpoint_requests():
         "/accounting/v1/report/bill/assoc%2Fid/debt/analytics",
         "/feedback/order/list/feedback%2Fid",
         "/feedback/order/comment/order%2Fid",
+        "/communication/v1/client/notification/tenant%2Fassoc/tenant/send",
         "/organization/v1/apartment/apartment%2Fid/list",
         "/accounting/v1/money/transaction/money%2Fid/list/bank",
         "/messenger/groups/group%2Fid/messages",
@@ -267,10 +291,11 @@ def test_endpoint_requests():
         client.calls[8]["payload"],
         client.calls[8]["tab_id"],
         client.calls[10]["payload"],
-        client.calls[11]["query"],
+        client.calls[11]["payload"],
         client.calls[12]["query"],
-        client.calls[15]["method"],
-        client.calls[16]["payload"],
+        client.calls[13]["query"],
+        client.calls[16]["method"],
+        client.calls[17]["payload"],
     ) == (
         {
             "clientId": "DAH_CLIENT_WEB",
@@ -292,6 +317,16 @@ def test_endpoint_requests():
         {"debt": True},
         "tab",
         {"status": "DONE"},
+        {
+            "details": [
+                {"type": "APP", "enabled": True},
+                {"type": "EMAIL", "enabled": True},
+                {"type": "SMS", "enabled": True},
+            ],
+            "tenantId": "tenant/id",
+            "text": "hello",
+            "textHtml": "<p>hello</p>",
+        },
         {"page": 1, "size": 2},
         {"page": 3, "size": 4},
         "GET",
@@ -307,10 +342,14 @@ def test_endpoint_requests():
 def test_request_json_success(monkeypatch):
     client = dah_api.DahApiClient(config(tab_id="configured-tab", timeout=12))
     seen = []
+    responses = [
+        Response(gzip.compress(b'{"ok": true}'), {"Content-Encoding": "gzip"}),
+        Response(b""),
+    ]
 
     def success(request, timeout, context):
         seen.append((request, timeout, context))
-        return Response(gzip.compress(b'{"ok": true}'), {"Content-Encoding": "gzip"})
+        return responses.pop(0)
 
     monkeypatch.setattr(dah_api.urllib.request, "urlopen", success)
     assert client.request_json(
@@ -319,6 +358,7 @@ def test_request_json_success(monkeypatch):
         query={"name": "two words"},
         payload={"x": 1},
     ) == {"ok": True}
+    assert client.request_json(method="POST", path="/empty", payload={}) == {}
     request, timeout, context = seen[0]
     headers = {key.lower(): value for key, value in request.header_items()}
     assert (

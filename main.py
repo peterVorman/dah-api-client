@@ -35,6 +35,7 @@ from dah_api import (
     MoneyTransactionBankListRequest,
     PublicationSaveRequest,
     PublicationsSearchRequest,
+    TenantNotificationRequest,
     default_bill_debt_analytics_payload,
     load_env_file,
 )
@@ -97,6 +98,9 @@ class DahCli:
             "feedback-order-list": lambda: self._feedback_orders(args, client),
             "feedback-order-status": lambda: self._update_or_preview_order_status(
                 args, client
+            ),
+            "tenant-notification-send": lambda: (
+                self._send_or_preview_tenant_notification(args, client)
             ),
             "apartment-list": lambda: self._apartments(args, client),
             "money-transaction-bank-list": lambda: self._bank_transactions(
@@ -210,6 +214,17 @@ class DahCli:
         if args.dry_run:
             return request.to_payload()
         return client.update_feedback_order_status(request)
+
+    def _send_or_preview_tenant_notification(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> Any:
+        request = self._build_tenant_notification_request(args)
+        if not args.send:
+            return request.to_payload()
+        validate_tenant_notification_confirmation(args, request)
+        return client.send_tenant_notification(request)
 
     def _login_or_preview(
         self,
@@ -550,6 +565,41 @@ class DahCli:
             help="Print the status request body without sending it.",
         )
 
+        tenant_notification_parser = subparsers.add_parser(
+            "tenant-notification-send",
+            help=(
+                "POST /communication/v1/client/notification/"
+                "{associationId}/tenant/send"
+            ),
+            description=(
+                "Build or send a DAH tenant notification. Defaults to preview; "
+                "use --send with --confirm-tenant-id to write."
+            ),
+        )
+        add_association_id_argument(tenant_notification_parser)
+        tenant_notification_parser.add_argument(
+            "--tenant-id",
+            help="Tenant id used as tenantId in the request body.",
+        )
+        tenant_notification_parser.add_argument(
+            "--text",
+            help="Plain text notification body.",
+        )
+        tenant_notification_parser.add_argument(
+            "--text-html",
+            help="HTML notification body. Defaults to escaped --text wrapped in <p>.",
+        )
+        tenant_notification_parser.add_argument(
+            "--send",
+            action="store_true",
+            help="Actually send the tenant notification. Omit for preview.",
+        )
+        tenant_notification_parser.add_argument(
+            "--confirm-tenant-id",
+            help="Tenant id confirmation required with --send.",
+        )
+        add_body_arguments(tenant_notification_parser)
+
         apartment_parser = subparsers.add_parser(
             "apartment-list",
             help="POST /organization/v1/apartment/{associationId}/list",
@@ -796,6 +846,32 @@ class DahCli:
             size=args.size,
             payload=load_payload(args, {}),
         )
+
+    def _build_tenant_notification_request(
+        self,
+        args: argparse.Namespace,
+    ) -> TenantNotificationRequest:
+        payload = load_payload(
+            args,
+            TenantNotificationRequest(
+                association_id=args.association_id,
+                tenant_id=args.tenant_id or "",
+                text=args.text or "",
+                text_html=args.text_html,
+            ).to_payload(),
+        )
+        details = payload.get("details", [])
+        if not isinstance(details, list):
+            raise SystemExit("Tenant notification details must be a JSON array.")
+        request = TenantNotificationRequest(
+            association_id=args.association_id,
+            tenant_id=str(payload.get("tenantId", "")),
+            text=str(payload.get("text", "")),
+            text_html=payload.get("textHtml"),
+            details=details,
+        )
+        validate_tenant_notification_request(request)
+        return request
 
     def _build_money_transaction_bank_list_request(
         self,
@@ -1085,6 +1161,23 @@ def debtor_request_kwargs(
     if include_limit:
         kwargs["limit"] = args.limit
     return kwargs
+
+
+def validate_tenant_notification_request(request: TenantNotificationRequest) -> None:
+    if not request.tenant_id:
+        raise SystemExit("Missing tenant id. Pass --tenant-id or body tenantId.")
+    if not request.text:
+        raise SystemExit("Missing tenant notification text. Pass --text or body text.")
+
+
+def validate_tenant_notification_confirmation(
+    args: argparse.Namespace,
+    request: TenantNotificationRequest,
+) -> None:
+    if args.confirm_tenant_id != request.tenant_id:
+        raise SystemExit(
+            "Missing --confirm-tenant-id matching tenantId for tenant notification."
+        )
 
 
 def load_payload(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gzip
+import html
 import json
 import os
 import re
@@ -192,6 +193,35 @@ class FeedbackOrderStatusRequest:
 
     def to_payload(self) -> dict[str, Any]:
         return {"status": self.status}
+
+
+def default_notification_details() -> list[dict[str, Any]]:
+    return [
+        {"type": "APP", "enabled": True},
+        {"type": "EMAIL", "enabled": True},
+        {"type": "SMS", "enabled": True},
+    ]
+
+
+def text_to_html_paragraph(text: str) -> str:
+    return f"<p>{'<br>'.join(html.escape(line) for line in text.splitlines())}</p>"
+
+
+@dataclass(slots=True)
+class TenantNotificationRequest:
+    tenant_id: str
+    text: str
+    association_id: str | None = None
+    text_html: str | None = None
+    details: list[dict[str, Any]] = field(default_factory=default_notification_details)
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "details": self.details,
+            "tenantId": self.tenant_id,
+            "text": self.text,
+            "textHtml": self.text_html or text_to_html_paragraph(self.text),
+        }
 
 
 @dataclass(slots=True)
@@ -410,6 +440,26 @@ class DahApiClient:
             tab_id=tab_id,
         )
 
+    def send_tenant_notification(
+        self,
+        request: TenantNotificationRequest,
+        *,
+        tab_id: str | None = None,
+    ) -> Any:
+        association_id = urllib.parse.quote(
+            request.association_id or self.get_default_association_id(),
+            safe="",
+        )
+        return self.request_json(
+            method="POST",
+            path=(
+                f"/communication/v1/client/notification/{association_id}"
+                "/tenant/send"
+            ),
+            payload=request.to_payload(),
+            tab_id=tab_id,
+        )
+
     def list_apartments(
         self,
         request: ApartmentListRequest | None = None,
@@ -555,7 +605,8 @@ class DahApiClient:
                 timeout=self.config.timeout,
                 context=self.config.ssl_context,
             ) as response:
-                return json.loads(self._read_response_text(response))
+                text = self._read_response_text(response)
+                return json.loads(text) if text.strip() else {}
         except urllib.error.HTTPError as exc:
             raise DahHttpError(
                 exc.code,
