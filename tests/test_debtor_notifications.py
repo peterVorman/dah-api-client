@@ -119,9 +119,10 @@ def test_debtor_notification_preview_and_send(tmp_path):
                 "debt": 4203.9,
                 "recipients": 1,
                 "notificationMethod": "messenger",
+                "recipientScope": "owners",
                 "checks": {
                     "exactApartmentFound": True,
-                    "activeOwnerFound": True,
+                    "recipientFound": True,
                     "personalChatWritable": "checked before send",
                 },
                 "message": (
@@ -137,6 +138,7 @@ def test_debtor_notification_preview_and_send(tmp_path):
                 "apartment": "84",
                 "debt": 3644.52,
                 "notificationMethod": "messenger",
+                "recipientScope": "owners",
                 "reason": "active owner user id not found",
             }
         ],
@@ -170,15 +172,17 @@ def test_debtor_notification_tenant_method():
 
     assert (
         report["ready"][0]["notificationMethod"],
+        report["ready"][0]["recipientScope"],
         report["ready"][0]["checks"],
         report["sent"],
         len(client.sent),
         client.sent[0].tenant_id,
     ) == (
         "tenant",
+        "owners",
         {
             "exactApartmentFound": True,
-            "activeOwnerFound": True,
+            "recipientFound": True,
             "tenantNotificationWritable": "checked by send",
         },
         [{"apartment": "55", "recipients": 1}],
@@ -206,16 +210,65 @@ def test_debtor_notification_auto_escalates_after_messenger(tmp_path):
 
     assert (
         report["ready"][0]["notificationMethod"],
+        report["ready"][0]["recipientScope"],
         report["sent"],
         len(client.sent),
         client.sent[0].tenant_id,
         '"notificationMethod": "tenant"' in ledger_path.read_text(encoding="utf-8"),
     ) == (
         "tenant",
+        "owners",
         [{"apartment": "55", "recipients": 1}],
         1,
         "tenant-55",
         True,
+    )
+
+
+def test_debtor_notification_auto_falls_back_to_others():
+    class OtherRecipientClient(NotificationClient):
+        def list_apartments(self, request):
+            self.apartment_request = request
+            return {
+                "content": [
+                    {
+                        "number": "84",
+                        "owners": [
+                            {
+                                "tenantId": "owner-tenant",
+                                "user": {
+                                    "userId": "owner-user",
+                                    "userStatus": "REGISTRATION",
+                                },
+                            }
+                        ],
+                        "others": [{"tenantId": "other-tenant"}],
+                    }
+                ],
+                "last": True,
+            }
+
+    client = OtherRecipientClient()
+    report = DebtorNotificationService(client).run(
+        DebtorNotificationRequest(
+            apartment_numbers=["84"],
+            confirm_apartment_numbers=["84"],
+            send=True,
+        )
+    )
+
+    assert (
+        report["ready"][0]["notificationMethod"],
+        report["ready"][0]["recipientScope"],
+        report["sent"],
+        len(client.sent),
+        client.sent[0].tenant_id,
+    ) == (
+        "tenant",
+        "others",
+        [{"apartment": "84", "recipients": 1}],
+        1,
+        "other-tenant",
     )
 
 

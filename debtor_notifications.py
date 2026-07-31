@@ -48,6 +48,7 @@ class DebtorNotificationRequest:
     max_send: int | None = None
     message_template: str = DEFAULT_DEBTOR_MESSAGE_TEMPLATE
     notification_method: str = "auto"
+    recipient_scope: str = "auto"
     send: bool = False
 
 
@@ -59,6 +60,7 @@ class DebtorNotification:
     message: str
     recipient_ids: list[str]
     notification_method: str
+    recipient_scope: str
     association_id: str | None = None
 
 
@@ -247,8 +249,8 @@ class DebtorNotificationService:
         ledger: "NotificationLedger",
     ) -> bool:
         apartment = apartment_for_debtor(debtor, apartments)
-        method = notification_method_for(debtor, request, ledger)
-        return bool(apartment and recipient_ids(apartment, method))
+        method, scope = notification_route_for(debtor, apartment, request, ledger)
+        return bool(apartment and recipient_ids(apartment, method, scope))
 
     @staticmethod
     def _notification(
@@ -257,7 +259,7 @@ class DebtorNotificationService:
         request: DebtorNotificationRequest,
         ledger: "NotificationLedger",
     ) -> DebtorNotification:
-        method = notification_method_for(debtor, request, ledger)
+        method, scope = notification_route_for(debtor, apartment, request, ledger)
         return DebtorNotification(
             apartment_number=debtor["number"],
             apartment_label=debtor["label"],
@@ -266,8 +268,9 @@ class DebtorNotificationService:
                 apartment_label=message_apartment_label(debtor["label"]),
                 debt=format_money(debtor["debt"]),
             ),
-            recipient_ids=recipient_ids(apartment, method),
+            recipient_ids=recipient_ids(apartment, method, scope),
             notification_method=method,
+            recipient_scope=scope,
             association_id=request.association_id,
         )
 
@@ -278,6 +281,7 @@ class DebtorNotificationService:
             "debt": round(notification.debt, 2),
             "recipients": len(notification.recipient_ids),
             "notificationMethod": notification.notification_method,
+            "recipientScope": notification.recipient_scope,
             "checks": notification_checks(notification.notification_method),
             "message": notification.message,
         }
@@ -290,14 +294,15 @@ class DebtorNotificationService:
         ledger: "NotificationLedger",
     ) -> dict[str, Any]:
         apartment = apartment_for_debtor(debtor, apartments)
-        method = notification_method_for(debtor, request, ledger)
+        method, scope = notification_route_for(debtor, apartment, request, ledger)
         reason = "exact apartment match not found"
-        if apartment and not recipient_ids(apartment, method):
-            reason = f"active owner {recipient_name(method)} id not found"
+        if apartment and not recipient_ids(apartment, method, scope):
+            reason = f"active {recipient_name(method, scope)} id not found"
         return {
             "apartment": debtor["number"],
             "debt": round(debtor["debt"], 2),
             "notificationMethod": method,
+            "recipientScope": scope,
             "reason": reason,
         }
 
@@ -379,27 +384,25 @@ def message_apartment_label(label: str) -> str:
 
 
 def active_owner_user_ids(apartment: dict[str, Any]) -> list[str]:
-    user_ids = []
-    for user in active_owner_users(apartment):
-        append_unique_user_id(user_ids, user.get("userId") or user.get("id"))
-    return user_ids
+    return scoped_user_ids(apartment, "owners")
 
 
 def active_owner_tenant_ids(apartment: dict[str, Any]) -> list[str]:
-    tenant_ids = []
-    for owner in active_owners(apartment):
-        append_unique_user_id(tenant_ids, owner.get("tenantId"))
-    return tenant_ids
+    return scoped_tenant_ids(apartment, "owners")
 
 
-def recipient_ids(apartment: dict[str, Any], notification_method: str) -> list[str]:
+def recipient_ids(
+    apartment: dict[str, Any],
+    notification_method: str,
+    recipient_scope: str = "owners",
+) -> list[str]:
     if notification_method == "tenant":
-        return active_owner_tenant_ids(apartment)
-    return active_owner_user_ids(apartment)
+        return scoped_tenant_ids(apartment, recipient_scope)
+    return scoped_user_ids(apartment, recipient_scope)
 
 
 def notification_checks(notification_method: str) -> dict[str, Any]:
-    checks = {"exactApartmentFound": True, "activeOwnerFound": True}
+    checks = {"exactApartmentFound": True, "recipientFound": True}
     if notification_method == "tenant":
         return {**checks, "tenantNotificationWritable": "checked by send"}
     return {**checks, "personalChatWritable": "checked before send"}
@@ -417,8 +420,43 @@ def notification_method_for(
     return "messenger"
 
 
-def recipient_name(notification_method: str) -> str:
-    return "tenant" if notification_method == "tenant" else "user"
+def notification_route_for(
+    debtor: dict[str, Any],
+    apartment: dict[str, Any],
+    request: DebtorNotificationRequest,
+    ledger: "NotificationLedger",
+) -> tuple[str, str]:
+    methods = notification_methods_for(debtor, request, ledger)
+    scopes = recipient_scopes_for(request)
+    for method in methods:
+        for scope in scopes:
+            if recipient_ids(apartment, method, scope):
+                return method, scope
+    return methods[0], scopes[0]
+
+
+def notification_methods_for(
+    debtor: dict[str, Any],
+    request: DebtorNotificationRequest,
+    ledger: "NotificationLedger",
+) -> list[str]:
+    method = notification_method_for(debtor, request, ledger)
+    if request.notification_method != "auto":
+        return [method]
+    other_method = "messenger" if method == "tenant" else "tenant"
+    return [method, other_method]
+
+
+def recipient_scopes_for(request: DebtorNotificationRequest) -> list[str]:
+    if request.recipient_scope != "auto":
+        return [request.recipient_scope]
+    return ["owners", "others"]
+
+
+def recipient_name(notification_method: str, recipient_scope: str) -> str:
+    field_name = "tenant" if notification_method == "tenant" else "user"
+    scope_name = "other" if recipient_scope == "others" else "owner"
+    return f"{scope_name} {field_name}"
 
 
 def active_owner_users(apartment: dict[str, Any]) -> list[dict[str, Any]]:
@@ -437,6 +475,59 @@ def active_owners(apartment: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(owner, dict)
         if is_active_user(owner.get("user"))
     ]
+
+
+def scoped_user_ids(apartment: dict[str, Any], recipient_scope: str) -> list[str]:
+    user_ids = []
+    for person in active_people(apartment, recipient_scope):
+        user = person.get("user")
+        if isinstance(user, dict):
+            append_unique_user_id(user_ids, user.get("userId") or user.get("id"))
+    return user_ids
+
+
+def scoped_tenant_ids(apartment: dict[str, Any], recipient_scope: str) -> list[str]:
+    tenant_ids = []
+    for person in tenant_people(apartment, recipient_scope):
+        append_unique_user_id(tenant_ids, person.get("tenantId"))
+    return tenant_ids
+
+
+def active_people(
+    apartment: dict[str, Any],
+    recipient_scope: str,
+) -> list[dict[str, Any]]:
+    return [
+        person
+        for person in scoped_people(apartment, recipient_scope)
+        if is_active_user(person.get("user"))
+    ]
+
+
+def tenant_people(
+    apartment: dict[str, Any],
+    recipient_scope: str,
+) -> list[dict[str, Any]]:
+    if recipient_scope == "owners":
+        return active_people(apartment, recipient_scope)
+    return [
+        person
+        for person in scoped_people(apartment, recipient_scope)
+        if user_active_or_missing(person)
+    ]
+
+
+def scoped_people(
+    apartment: dict[str, Any],
+    recipient_scope: str,
+) -> list[dict[str, Any]]:
+    people = apartment.get("others" if recipient_scope == "others" else "owners") or []
+    return [person for person in people if isinstance(person, dict)]
+
+
+def user_active_or_missing(person: dict[str, Any]) -> bool:
+    user = person.get("user")
+    return not isinstance(user, dict) or is_active_user(user)
 
 
 def is_active_user(user: Any) -> bool:
@@ -614,6 +705,7 @@ class NotificationLedger:
                     "recipients": result.get("recipients", 0) if result else 0,
                     "debtFilterAccruals": request.debt_filter_accruals,
                     "notificationMethod": record_notification_method(request, source),
+                    "recipientScope": record_recipient_scope(request, source),
                 }
             )
 
@@ -668,3 +760,14 @@ def record_notification_method(
     if isinstance(source, dict) and isinstance(source.get("notificationMethod"), str):
         return source["notificationMethod"]
     return request.notification_method
+
+
+def record_recipient_scope(
+    request: DebtorNotificationRequest,
+    source: Any,
+) -> str:
+    if isinstance(source, DebtorNotification):
+        return source.recipient_scope
+    if isinstance(source, dict) and isinstance(source.get("recipientScope"), str):
+        return source["recipientScope"]
+    return request.recipient_scope

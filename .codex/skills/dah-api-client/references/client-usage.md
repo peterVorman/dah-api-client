@@ -189,6 +189,7 @@ python3 main.py debtors-notify --min-debt 3000 --format table
 python3 main.py debtors-notify --apartment-number 55 --send --confirm 55
 python3 main.py debtors-notify --notification-method auto --apartment-number 55
 python3 main.py debtors-notify --notification-method tenant --apartment-number 55 --send --confirm 55
+python3 main.py debtors-notify --recipient-scope others --apartment-number 114
 python3 main.py debtors-notify --send --one-by-one --confirm 55 --apartment-number 55
 python3 main.py debtors-next --exclude-notified-today --limit 15 --format table
 python3 main.py debtors-next --notification-method auto --limit 15
@@ -438,17 +439,26 @@ notification modes:
   `/communication/v1/client/notification/<associationId>/tenant/send`, using the
   same message template for `text` and generated `textHtml`.
 
+It also supports recipient source selection:
+
+- `--recipient-scope auto`: default; tries `owners` first, then falls back to
+  `others` when owners have no reachable recipient for the selected channel.
+- `--recipient-scope owners`: only use `owners`.
+- `--recipient-scope others`: only use `others`, such as residents or renters
+  stored on the apartment record.
+
 The workflow is:
 
 1. Fetch bill debt analytics with the requested `debtFilterAccruals`.
 2. Fetch apartments through `list_apartments()`.
 3. Match each debtor to an apartment by exact apartment `number`.
-4. Use only active owners.
+4. Select a recipient source. By default, owners are tried first and `others`
+   are used as a fallback.
 5. Select a notification method. In `auto`, any current debtor with a prior
    successful messenger ledger record is escalated to tenant notification; old
    ledger records without `notificationMethod` are treated as messenger records.
-6. Select recipients from `owners[].user.userId` for messenger or
-   `owners[].tenantId` for tenant notifications.
+6. Select recipients from `<scope>[].user.userId` for messenger or
+   `<scope>[].tenantId` for tenant notifications.
 7. Send only when `--send` is explicitly passed.
 
 The command defaults to dry-run preview and returns `ready`, `sent`, and
@@ -460,8 +470,8 @@ and `--limit` to cap the ready notifications.
 Use `--format json`, `--format table`, or `--format text` for machine-readable
 or operator-readable output. `--send` requires `--confirm <apartment number>`
 for every ready notification; repeat `--confirm` for batches. Dry-run previews
-include readiness checks for exact apartment match, active owner presence, and
-the selected notification method.
+include readiness checks for exact apartment match, recipient presence, and the
+selected notification method and recipient source.
 
 Notification safety:
 
@@ -474,7 +484,7 @@ Notification safety:
 - Use `--exclude-notified-today` to skip apartments already sent today.
 
 `python3 main.py debtors-next` returns the next ready debtors without sending.
-It uses the same exact apartment and owner-readiness checks as
+It uses the same exact apartment and recipient-readiness checks as
 `debtors-notify`; combine it with `--exclude-notified-today` to build the next
 operator queue.
 

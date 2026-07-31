@@ -63,6 +63,7 @@ def test_next_to_notify_excludes_ledger(tmp_path):
             "debt": 1000.0,
             "recipients": 1,
             "notificationMethod": "messenger",
+            "recipientScope": "owners",
         }
     ]
     assert report["skipped"] == []

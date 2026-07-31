@@ -171,6 +171,19 @@ def apartment(number, entrance, floor, area):
     }
 
 
+def apartment_with_other_recipient(number):
+    return {
+        "number": number,
+        "owners": [
+            {
+                "tenantId": "owner-tenant",
+                "user": {"userId": "owner-user", "userStatus": "REGISTRATION"},
+            }
+        ],
+        "others": [{"tenantId": "other-tenant"}],
+    }
+
+
 def case(argv, response, call, calls, attrs=(), request=None, env=None):
     if request is None:
         request = {}
@@ -686,13 +699,51 @@ def test_cli_debtors_notify_auto_method(cli_env, capsys, tmp_path):
     assert (
         status,
         response["ready"][0]["notificationMethod"],
+        response["ready"][0]["recipientScope"],
         response["ready"][0]["recipients"],
         [name for name, _ in client.calls],
     ) == (
         0,
         "tenant",
+        "owners",
         1,
         ["apartment-list", "bill-debt-analytics"],
+    )
+
+
+def test_cli_debtors_notify_others_recipient_scope(cli_env, capsys):
+    FakeClient.debt_response = {
+        "rows": [{"apartmentName": "Квартира 84", "endBalance": -3644.52}]
+    }
+    FakeClient.apartment_response = {
+        "content": [apartment_with_other_recipient("84")],
+        "last": True,
+    }
+
+    status, response, _, client = run_cli(
+        args(
+            "debtors-notify --notification-method tenant "
+            "--recipient-scope others --apartment-number 84 "
+            "--send --confirm 84"
+        ),
+        capsys,
+    )
+    call, request = last_call(client)
+
+    assert (
+        status,
+        response["ready"][0]["notificationMethod"],
+        response["ready"][0]["recipientScope"],
+        response["sent"],
+        call,
+        request.tenant_id,
+    ) == (
+        0,
+        "tenant",
+        "others",
+        [{"apartment": "84", "recipients": 1}],
+        "tenant-notification-send",
+        "other-tenant",
     )
 
 

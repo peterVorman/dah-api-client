@@ -456,6 +456,7 @@ class DahCli:
         add_association_id_argument(notify_parser)
         add_debt_report_arguments(notify_parser, default_kind="all", default_limit=None)
         add_notification_method_argument(notify_parser)
+        add_recipient_scope_argument(notify_parser)
         notify_parser.add_argument(
             "--apartment-number",
             action="append",
@@ -511,6 +512,7 @@ class DahCli:
         add_association_id_argument(next_parser)
         add_debt_report_arguments(next_parser)
         add_notification_method_argument(next_parser)
+        add_recipient_scope_argument(next_parser)
         next_parser.add_argument(
             "--exclude-notified-today",
             action="store_true",
@@ -818,6 +820,7 @@ class DahCli:
             max_send=debtor_notify_max_send(args),
             message_template=args.message_template,
             notification_method=args.notification_method,
+            recipient_scope=args.recipient_scope,
             send=args.send,
         )
 
@@ -831,6 +834,7 @@ class DahCli:
             ledger_path=args.ledger_path,
             output_format=args.format,
             notification_method=args.notification_method,
+            recipient_scope=args.recipient_scope,
         )
 
     def _build_debtor_structure_request(
@@ -1139,6 +1143,18 @@ def add_notification_method_argument(parser: argparse.ArgumentParser) -> None:
         help=(
             "Notification transport. Defaults to auto, which switches current "
             "debtors with previous messenger sends to tenant notifications."
+        ),
+    )
+
+
+def add_recipient_scope_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--recipient-scope",
+        choices=("auto", "owners", "others"),
+        default="auto",
+        help=(
+            "Recipient source. Defaults to auto: owners first, then others "
+            "when owners have no reachable recipient."
         ),
     )
 

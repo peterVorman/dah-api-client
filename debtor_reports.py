@@ -41,7 +41,8 @@ class DebtorNextRequest:
     exclude_notified_today: bool = False
     ledger_path: str = DEFAULT_NOTIFICATION_LEDGER_PATH
     output_format: str = "json"
-    notification_method: str = "messenger"
+    notification_method: str = "auto"
+    recipient_scope: str = "auto"
 
 
 @dataclass(slots=True)
@@ -70,6 +71,7 @@ class DebtorReportService:
                 exclude_notified_today=request.exclude_notified_today,
                 ledger_path=request.ledger_path,
                 notification_method=request.notification_method,
+                recipient_scope=request.recipient_scope,
             )
         )
         rows = [
@@ -78,6 +80,7 @@ class DebtorReportService:
                 "debt": row["debt"],
                 "recipients": row["recipients"],
                 "notificationMethod": row["notificationMethod"],
+                "recipientScope": row["recipientScope"],
             }
             for row in report["ready"]
         ]
