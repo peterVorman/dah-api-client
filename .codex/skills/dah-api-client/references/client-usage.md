@@ -214,6 +214,266 @@ Common flags:
 - `--timeout`: set HTTP timeout seconds.
 - `--compact`: print compact JSON.
 
+## Operational Workflows
+
+These workflows capture the recurring DAH operations used in this repository.
+Keep outputs concise, aggregate by default, and expose apartment/premise numbers
+only when the user is performing an authorized debtor operation.
+
+### Current Debt Snapshot
+
+Use when the user asks "what is happening with debtors" or asks whether there
+are changes.
+
+1. Fetch current debt analytics with `debtFilterAccruals=1`.
+2. Normalize rows through `DebtorNotificationService.debtors()` or
+   `debt_entries()`.
+3. Split totals by `kind`: `apartment`, `premise`, and `all`.
+4. Include count, total debt, area, debt per square meter when available, and
+   top debtors.
+5. Compare with the most recent known baseline from the conversation or a saved
+   local snapshot. If no baseline exists, say it is a fresh snapshot.
+6. State the practical conclusion: whether movement is mostly apartments,
+   premises, or no meaningful movement.
+
+### Entrance And Floor Debt Analysis
+
+Use for requests about entrances, floors, "who to stimulate", or area-adjusted
+load.
+
+1. Use `DebtorReportService.by_entrance()` or
+   `python3 main.py debtors-by-entrance --area-adjusted`.
+2. Use apartment metadata from `list_apartments()` as the area denominator, not
+   only debtor rows; otherwise debt load is overstated.
+3. Preserve the `Без підʼїзду` bucket. Do not drop it when grouping.
+4. Sort by debt per square meter for area-adjusted analysis, and by total debt
+   for cash-impact analysis.
+5. Report both metrics when recommending where to focus: total recoverable debt
+   and normalized pressure per square meter.
+
+### Non-Residential Debt Follow-Up
+
+Use when the user asks about нежитлові/приміщення.
+
+1. Fetch debtors with `kind="premise"` and `debtFilterAccruals=1`.
+2. Group by `Без підʼїзду`, entrance, floor, and debt buckets.
+3. Highlight concentration in the top premises separately from the long tail.
+4. If the user marks premises as already processed, exclude those numbers from
+   the next actionable queue but keep them in total debt reporting.
+5. Use `Приміщення` in user-facing text unless the user asks for the full DAH
+   label.
+
+### Debtor Notification Queue
+
+Use when preparing who to notify next.
+
+1. Run `debtors-next` or `DebtorReportService.next_to_notify()` with
+   `notification_method="auto"` and `recipient_scope="auto"` unless the user
+   specifies otherwise.
+2. Use `--exclude-notified-today` when the request is about "next" debtors after
+   a same-day batch.
+3. Show apartment/premise number, debt, recipient count, selected channel, and
+   recipient scope. Do not show names, raw user ids, tenant ids, phone numbers,
+   emails, or message bodies unless needed for approval.
+4. For sending, use `--send` only after explicit user approval and include
+   `--confirm` for each target. Use `--max-send` or `--one-by-one` for risky
+   batches.
+
+### Automatic Notification Method
+
+Use `notification_method="auto"` as the default debtor-notification behavior.
+
+1. If the debtor has a prior successful messenger record in
+   `.dah-notifications.jsonl`, auto prefers tenant notification.
+2. Otherwise auto starts with messenger.
+3. If the selected channel has no reachable owner recipient, `recipient_scope`
+   auto falls back from `owners` to `others`.
+4. Auto selects one route. It does not mean "send to owners and others at the
+   same time".
+5. To notify both owners and residents/renters in one operation, perform an
+   explicit custom flow that merges `owners` and `others`, deduplicates user ids,
+   and records `recipientScope` as `owners+others`.
+
+### Manual Contact Ledger
+
+Use when the user reports a phone call or offline contact result.
+
+1. Append one JSONL record to `.dah-notifications.jsonl`.
+2. Use `notificationMethod: "phone_call"` for calls.
+3. Use `status: "contacted"` when contact was established and
+   `status: "no_answer"` when nobody answered.
+4. Store apartment/premise number, current debt when known, recipient scope,
+   recipient count, and a short note.
+5. Do not store phone numbers, emails, personal ids, or unnecessary personal
+   details in the ledger.
+
+Example record shape:
+
+```json
+{
+  "date": "YYYY-MM-DD",
+  "apartment": "<number>",
+  "debt": 0.0,
+  "status": "contacted",
+  "notificationMethod": "phone_call",
+  "recipientScope": "owners",
+  "recipients": 1,
+  "note": "Contact established. They said they should pay."
+}
+```
+
+### Single Apartment Payment Analysis
+
+Use when the user asks to analyze one apartment or premise.
+
+1. Count local communication history from `.dah-notifications.jsonl`.
+2. Report both physical ledger records and unique contact dates because older
+   batches may contain duplicate records.
+3. Fetch bank income transactions from the requested period, usually the last
+   two months.
+4. Attribute payments only by exact analytics match such as `Квартира <number>`
+   or exact account marker such as `050<number>`. Avoid broad number searches
+   because transaction ids and comments can contain unrelated numeric matches.
+5. Fetch debt analytics on relevant historical dates to show debt movement
+   before and after payments and monthly accruals.
+6. Finalize with a clear conclusion: payment found or not, current debt, and
+   whether debt moved after the last contact.
+
+### Debtor Publication In DAH
+
+Use when publishing debtor lists or debt summaries inside DAH.
+
+1. Prepare a preview first unless the user already gave explicit approval.
+2. Use only apartment/premise numbers and debt amounts; avoid owner names or
+   other personal data in public/group publications.
+3. Build valid HTML with paragraphs and lists, then send the same HTML in
+   `description` and `descriptionHtml`.
+4. Verify the saved publication with `get_publication()` and confirm that
+   formatting tags survived.
+5. If the user asks for a public summary, prefer aggregate totals and dynamics;
+   individual debtor lists require explicit authorization.
+
+### Feedback Order Closure
+
+Use when closing DAH tasks such as completed maintenance/order work.
+
+1. Fetch current feedback orders with `list_feedback_orders()` if the target id
+   is not already known.
+2. Match by task title/content conservatively.
+3. Add any requested comment through the available task system first if
+   applicable.
+4. Preview `FeedbackOrderStatusRequest(status="DONE")` for ambiguous tasks.
+5. Send `update_feedback_order_status()` only after explicit approval or a clear
+   user command to close the identified task.
+
+### Bank Expense Reconciliation
+
+Use when matching planned payments against DAH bank transactions.
+
+1. Fetch bank transactions with `direction="EXPENSE"` and the requested
+   `from` date.
+2. Normalize dates, amounts, and descriptions.
+3. Match planned items by exact or high-confidence amount/date/vendor
+   combinations; call out ambiguous matches instead of forcing them.
+4. When posting results to an external task system, avoid raw bank account
+   numbers and personal counterparty data unless the destination is explicitly
+   authorized for that data.
+
+## Function Reference
+
+Use this section as the quick map from user intent to client function or CLI
+command. Keep live data out of examples; use placeholders for ids and secrets.
+
+### Authentication And Access
+
+- `DahApiConfig.from_env()`: build the client configuration from `.env.local`
+  and environment variables. Use it for normal scripts and CLI-backed workflows.
+- `DahApiClient.get_access()`: read the authenticated user's available DAH
+  organization/association access. Scoped methods use it to resolve a single
+  association id when `DAH_ASSOCIATION_ID` is not set.
+- `DahApiClient.authentication_web_login()`: call web login with
+  `AuthenticationWebLoginRequest`. Use only with authorized credentials from the
+  environment or an explicit user-provided body.
+- `DahApiClient.authentication_relogin()`: refresh an existing session with
+  `AuthenticationReloginRequest`, usually from `DAH_REFRESH_TOKEN` and
+  `DAH_DEVICE_ID`.
+- `DahApiClient.authentication_exit()`: end the active DAH session.
+- `python3 main.py auth-status`: inspect local auth state without printing token
+  values.
+
+### Publications
+
+- `DahApiClient.search_publications()`: list DAH publications using
+  `PublicationsSearchRequest`; defaults to published items.
+- `DahApiClient.get_publication(publication_id)`: fetch one publication by id.
+- `DahApiClient.save_publication()`: create or edit a DAH publication through
+  `PublicationSaveRequest`. Include `id` to edit; omit it to create. For
+  formatted announcements, send the same HTML in `description` and
+  `descriptionHtml`.
+
+### Debt And Reports
+
+- `default_bill_debt_analytics_payload()`: build the standard DAH debt analytics
+  payload. `debt_filter_accruals` controls the accrual threshold, and `date`
+  selects the report timestamp.
+- `DahApiClient.get_bill_debt_analytics()`: fetch raw DAH debt rows for the
+  selected association.
+- `DebtorNotificationService.debtors()`: normalize raw debt analytics rows into
+  sorted debtor records with label, number, kind, and positive debt amount.
+- `DebtorReportService.next_to_notify()`: preview debtors that have a reachable
+  notification route, without sending.
+- `DebtorReportService.by_entrance()`: group current debt by entrance/floor and,
+  with `area_adjusted=True`, include debt per square meter.
+- `python3 main.py debtors-by-entrance`: CLI entrypoint for entrance/floor debt
+  structure.
+- `python3 main.py debtors-next`: CLI entrypoint for the next notification queue.
+
+### Debtor Notifications
+
+- `DebtorNotificationService.run()`: build a dry-run or send batch for debtors.
+  It returns `ready`, `sent`, and `skipped`; writes require `send=True` and
+  per-apartment confirmation.
+- `DebtorNotificationRequest.notification_method`: choose `messenger`, `tenant`,
+  or `auto`. `auto` uses messenger first, then tenant notification after prior
+  successful messenger contact in the local ledger.
+- `DebtorNotificationRequest.recipient_scope`: choose `owners`, `others`, or
+  `auto`. `auto` tries owners first, then residents/renters stored as `others`.
+- `NotificationLedger`: local JSONL record of sent/skipped/manual contact
+  outcomes. The default file `.dah-notifications.jsonl` is local and gitignored.
+- `python3 main.py debtors-notify`: CLI entrypoint for dry-run and confirmed
+  debtor notification sends.
+
+### Apartments And Contacts
+
+- `DahApiClient.list_apartments()`: fetch apartment/premise records and owner or
+  other occupant metadata. Treat returned people data as personal data.
+- `apartment_for_debtor()`: match a normalized debtor to an apartment record by
+  exact kind and apartment number.
+- `recipient_ids()`: extract reachable recipient ids for messenger or tenant
+  notification from owner/other records.
+- `DahApiClient.get_messenger_personal_group()`: fetch or create a personal DAH
+  messenger group for an exact user id before sending a direct message.
+
+### Messenger
+
+- `DahApiClient.list_messenger_groups()`: page through DAH messenger groups.
+- `DahApiClient.list_messenger_group_messages()`: read messages from one group.
+- `DahApiClient.send_messenger_message()`: send a text message to a DAH
+  messenger group with `MessengerMessageRequest`.
+- `python3 main.py messenger-send-message`: CLI entrypoint for dry-run or
+  confirmed group/personal messenger messages.
+
+### Feedback Orders And Accounting
+
+- `DahApiClient.list_feedback_orders()`: list DAH feedback/service orders.
+- `DahApiClient.update_feedback_order_status()`: update an order status with
+  `FeedbackOrderStatusRequest`; use CLI `--dry-run` before writes.
+- `DahApiClient.list_money_transaction_bank()`: list bank transactions, filtered
+  by payload fields such as `direction` and `from`. Use exact apartment account
+  or analytics matching when attributing payments.
+- `python3 main.py money-transaction-bank-list`: CLI entrypoint for bank
+  transaction queries.
+
 ## Current Client Surface
 
 `DahApiClient.get_access()` calls:

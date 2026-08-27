@@ -26,7 +26,9 @@ authorized operation.
 1. Set the working directory to the repository root that contains `dah_api.py` and `main.py`.
 2. Inspect `dah_api.py` and `main.py` before changing behavior; preserve their public interfaces unless the user asks for a broader refactor.
 3. Prefer `DahApiClient` for Python work and `main.py` for quick command-line queries.
-4. Read `references/client-usage.md` when you need exact imports, CLI examples, endpoint details, or extension patterns.
+4. Read `references/client-usage.md` when you need exact imports, function
+   descriptions, CLI examples, endpoint details, debtor workflow behavior, or
+   extension patterns.
 5. Keep bearer and refresh tokens out of final answers, logs, fixtures, screenshots, and committed test data. Require credentials from the environment or `.env.local`; do not pass tokens through CLI arguments.
 6. Do not provide DAH access, token acquisition help, account support, billing
    support, association support, or operational DAH troubleshooting; route those
