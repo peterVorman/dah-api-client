@@ -28,12 +28,21 @@ authorized operation.
 3. Prefer `DahApiClient` for Python work and `main.py` for quick command-line queries.
 4. Read `references/client-usage.md` first for routing. Then read only the needed
    detail reference:
+   - `references/intent-router.md` for mapping user intent to the right workflow,
+     command, and reference.
+   - `references/commands.json` for machine-readable command metadata before
+     choosing or automating CLI commands.
    - `references/configuration.md` for environment, auth, TLS, privacy, and
      licensing guardrails.
    - `references/workflows.md` for debtor, publication, feedback-order, ledger,
      and bank reconciliation workflows.
    - `references/endpoints.md` for functions, endpoint paths, payloads, and
      extension patterns.
+   - `references/safety-decision-table.md` before exposing sensitive data or
+     using DAH data in external systems.
+   - `references/write-operation-protocol.md` before write operations.
+   - `references/output-templates.md` for concise response shapes.
+   - `references/golden-prompts.md` when changing or validating AI behavior.
    - `references/quality-gates.md` for validation commands.
 5. Keep bearer and refresh tokens out of final answers, logs, fixtures, screenshots, and committed test data. Require credentials from the environment or `.env.local`; do not pass tokens through CLI arguments.
 6. Do not provide DAH access, token acquisition help, account support, billing
@@ -97,6 +106,11 @@ When adding a DAH endpoint:
 For live API calls, warn the user that the request will contact `api.dah-online.com` if that is not already obvious from the request. Use read-oriented endpoints by default.
 
 For write endpoints, such as sending messenger messages or tenant notifications, prefer `--dry-run`/preview first and only send when the user explicitly asks to perform the write.
+
+For sensitive operational outputs, prefer aggregate summaries and the templates
+in `references/output-templates.md`. Do not print raw DAH ids, contact details,
+credentials, or full raw API responses unless strictly required for an
+authorized action.
 
 If a live call returns `401 Unauthorized`, treat it as an authentication/token freshness issue first. Ask for or use a fresh `DAH_BEARER_TOKEN`; do not hard-code tokens.
 

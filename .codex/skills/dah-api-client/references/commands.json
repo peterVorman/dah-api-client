@@ -1,0 +1,196 @@
+{
+  "commands": [
+    {
+      "name": "access",
+      "mode": "read",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["configuration.md"]
+    },
+    {
+      "name": "auth-status",
+      "mode": "read",
+      "requiresEnv": [],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["configuration.md"]
+    },
+    {
+      "name": "authentication-web-login",
+      "mode": "write",
+      "requiresEnv": ["DAH_LOGIN", "DAH_PASSWORD"],
+      "supportsDryRun": true,
+      "requiresApproval": true,
+      "references": ["configuration.md", "write-operation-protocol.md"]
+    },
+    {
+      "name": "authentication-relogin",
+      "mode": "write",
+      "requiresEnv": ["DAH_REFRESH_TOKEN"],
+      "supportsDryRun": true,
+      "requiresApproval": false,
+      "references": ["configuration.md"]
+    },
+    {
+      "name": "authentication-exit",
+      "mode": "write",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": true,
+      "references": ["configuration.md", "write-operation-protocol.md"]
+    },
+    {
+      "name": "publications-search",
+      "mode": "read",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["endpoints.md"]
+    },
+    {
+      "name": "publication-get",
+      "mode": "read",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["endpoints.md"]
+    },
+    {
+      "name": "publication-save",
+      "mode": "write",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": true,
+      "requiresApproval": true,
+      "references": ["endpoints.md", "write-operation-protocol.md"]
+    },
+    {
+      "name": "bill-debt-analytics",
+      "mode": "read",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["workflows.md", "endpoints.md"]
+    },
+    {
+      "name": "debtors-next",
+      "mode": "read",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["workflows.md", "safety-decision-table.md"]
+    },
+    {
+      "name": "debtors-notify",
+      "mode": "write",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": true,
+      "requiresApproval": true,
+      "references": ["workflows.md", "write-operation-protocol.md", "safety-decision-table.md"]
+    },
+    {
+      "name": "debtors-by-entrance",
+      "mode": "read",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["workflows.md", "output-templates.md"]
+    },
+    {
+      "name": "debtor-audit",
+      "mode": "read",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["workflows.md", "output-templates.md"]
+    },
+    {
+      "name": "debt-snapshot",
+      "mode": "read",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["workflows.md", "output-templates.md"]
+    },
+    {
+      "name": "ledger-add-contact",
+      "mode": "local-write",
+      "requiresEnv": [],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["workflows.md", "safety-decision-table.md"]
+    },
+    {
+      "name": "feedback-order-list",
+      "mode": "read",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["workflows.md", "endpoints.md"]
+    },
+    {
+      "name": "feedback-order-status",
+      "mode": "write",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": true,
+      "requiresApproval": true,
+      "references": ["workflows.md", "write-operation-protocol.md"]
+    },
+    {
+      "name": "tenant-notification-send",
+      "mode": "write",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": true,
+      "requiresApproval": true,
+      "references": ["write-operation-protocol.md", "safety-decision-table.md"]
+    },
+    {
+      "name": "apartment-list",
+      "mode": "read-sensitive",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["endpoints.md", "safety-decision-table.md"]
+    },
+    {
+      "name": "money-transaction-bank-list",
+      "mode": "read-sensitive",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["workflows.md", "endpoints.md"]
+    },
+    {
+      "name": "messenger-groups-page",
+      "mode": "read-sensitive",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["endpoints.md"]
+    },
+    {
+      "name": "messenger-group-messages",
+      "mode": "read-sensitive",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["endpoints.md", "safety-decision-table.md"]
+    },
+    {
+      "name": "messenger-personal-group-get",
+      "mode": "read-sensitive",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["endpoints.md", "safety-decision-table.md"]
+    },
+    {
+      "name": "messenger-send-message",
+      "mode": "write",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": true,
+      "requiresApproval": true,
+      "references": ["write-operation-protocol.md", "safety-decision-table.md"]
+    }
+  ]
+}

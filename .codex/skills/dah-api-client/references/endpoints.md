@@ -1,5 +1,11 @@
 # Endpoints
 
+## Contents
+
+- Function Map
+- Default Payloads
+- Endpoint Extension Checklist
+
 ## Function Map
 
 - `DahApiConfig.from_env()`: build client config from `.env.local` and

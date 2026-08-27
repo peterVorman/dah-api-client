@@ -21,10 +21,17 @@ Read only the reference needed for the task:
 
 - `configuration.md`: environment, login/relogin/logout, token storage, TLS,
   privacy and licensing guardrails.
+- `intent-router.md`: user intent to command/reference routing.
+- `commands.json`: machine-readable command metadata for mode, approval, dry-run,
+  and required environment.
 - `workflows.md`: recurring debtor, publication, feedback-order, ledger, and
   bank-reconciliation workflows.
 - `endpoints.md`: function map, endpoint paths, default payloads, and endpoint
   extension checklist.
+- `safety-decision-table.md`: what can be shown, stored, or written.
+- `write-operation-protocol.md`: exact protocol for DAH/external writes.
+- `output-templates.md`: stable answer shapes.
+- `golden-prompts.md`: AI behavior fixtures for future skill changes.
 - `quality-gates.md`: local and CI validation commands.
 
 ## CLI Quick Start
