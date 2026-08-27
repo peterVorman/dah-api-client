@@ -28,6 +28,9 @@ jobs:
       - name: Compile
         run: python -m py_compile dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py
 
+      - name: Validate skill package
+        run: python .codex/skills/dah-api-client/scripts/validate_skill.py .codex/skills/dah-api-client
+
       - name: Test
         run: python -m pytest
 

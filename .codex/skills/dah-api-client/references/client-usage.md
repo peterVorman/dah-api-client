@@ -62,7 +62,16 @@ If a live request returns `401 Unauthorized`, first assume the active token is e
 ## Python Quick Start
 
 ```python
-from debtor_notifications import DebtorNotificationRequest, DebtorNotificationService
+from debtor_notifications import (
+    DebtorNotificationRequest,
+    DebtorNotificationService,
+    NotificationLedger,
+)
+from debtor_reports import (
+    DebtSnapshotRequest,
+    DebtorAuditRequest,
+    DebtorReportService,
+)
 from dah_api import (
     ApartmentListRequest,
     DahApiClient,
@@ -129,6 +138,20 @@ try:
             apartment_numbers=["55"],
         )
     )
+    debtor_audit = DebtorReportService(client).audit(
+        DebtorAuditRequest(
+            apartment_number="55",
+            from_date="2026-07-01T00:00:00",
+        )
+    )
+    debt_snapshot = DebtorReportService(client).snapshot(
+        DebtSnapshotRequest(write_snapshot=True)
+    )
+    manual_contact = NotificationLedger(".dah-notifications.jsonl").record_manual_contact(
+        apartment_number="55",
+        status="contacted",
+        note="Contact established; payment expected.",
+    )
     feedback_orders = client.list_feedback_orders(FeedbackOrderListRequest())
     closed_order = client.update_feedback_order_status(
         FeedbackOrderStatusRequest(
@@ -190,11 +213,15 @@ python3 main.py debtors-notify --apartment-number 55 --send --confirm 55
 python3 main.py debtors-notify --notification-method auto --apartment-number 55
 python3 main.py debtors-notify --notification-method tenant --apartment-number 55 --send --confirm 55
 python3 main.py debtors-notify --recipient-scope others --apartment-number 114
+python3 main.py debtors-notify --recipient-scope owners+others --apartment-number 114
 python3 main.py debtors-notify --send --one-by-one --confirm 55 --apartment-number 55
 python3 main.py debtors-next --exclude-notified-today --limit 15 --format table
 python3 main.py debtors-next --notification-method auto --limit 15
 python3 main.py debtors-next --notification-method tenant --limit 15
 python3 main.py debtors-by-entrance --area-adjusted --kind apartment
+python3 main.py debtor-audit --apartment-number 55 --from-date 2026-07-01T00:00:00
+python3 main.py debt-snapshot --write --kind all
+python3 main.py ledger-add-contact --apartment-number 55 --status contacted --note 'Contact established'
 python3 main.py feedback-order-list
 python3 main.py feedback-order-status '<feedback order id>' --status DONE --dry-run
 python3 main.py tenant-notification-send --tenant-id '<tenant id>' --text 'Повідомлення'
@@ -214,6 +241,17 @@ Common flags:
 - `--timeout`: set HTTP timeout seconds.
 - `--compact`: print compact JSON.
 
+## Skill Scripts
+
+Run these from the workspace root when a repeatable workflow is preferable to
+typing CLI subcommands manually:
+
+```bash
+python3 .codex/skills/dah-api-client/scripts/debtor_audit.py --apartment-number 55 --from-date 2026-07-01T00:00:00
+python3 .codex/skills/dah-api-client/scripts/debt_snapshot.py --write
+python3 .codex/skills/dah-api-client/scripts/validate_skill.py .codex/skills/dah-api-client
+```
+
 ## Operational Workflows
 
 These workflows capture the recurring DAH operations used in this repository.
@@ -231,8 +269,9 @@ are changes.
 3. Split totals by `kind`: `apartment`, `premise`, and `all`.
 4. Include count, total debt, area, debt per square meter when available, and
    top debtors.
-5. Compare with the most recent known baseline from the conversation or a saved
-   local snapshot. If no baseline exists, say it is a fresh snapshot.
+5. Use `python3 main.py debt-snapshot --write` for a local aggregate baseline,
+   then compare later runs against the latest `.dah-debt-snapshots.jsonl`
+   record. If no baseline exists, say it is a fresh snapshot.
 6. State the practical conclusion: whether movement is mostly apartments,
    premises, or no meaningful movement.
 
@@ -290,9 +329,9 @@ Use `notification_method="auto"` as the default debtor-notification behavior.
    auto falls back from `owners` to `others`.
 4. Auto selects one route. It does not mean "send to owners and others at the
    same time".
-5. To notify both owners and residents/renters in one operation, perform an
-   explicit custom flow that merges `owners` and `others`, deduplicates user ids,
-   and records `recipientScope` as `owners+others`.
+5. To notify both owners and residents/renters in one operation, use explicit
+   `recipient_scope="owners+others"` or CLI `--recipient-scope owners+others`.
+   Keep `auto` as fallback routing, not broadcast-to-all routing.
 
 ### Manual Contact Ledger
 
@@ -306,6 +345,12 @@ Use when the user reports a phone call or offline contact result.
    recipient count, and a short note.
 5. Do not store phone numbers, emails, personal ids, or unnecessary personal
    details in the ledger.
+
+Prefer the CLI helper:
+
+```bash
+python3 main.py ledger-add-contact --apartment-number 55 --status no_answer --note 'No answer'
+```
 
 Example record shape:
 
@@ -338,6 +383,14 @@ Use when the user asks to analyze one apartment or premise.
    before and after payments and monthly accruals.
 6. Finalize with a clear conclusion: payment found or not, current debt, and
    whether debt moved after the last contact.
+
+Use this for the structured version:
+
+```bash
+python3 main.py debtor-audit --apartment-number 55 --from-date YYYY-MM-DDT00:00:00
+```
+
+It does not print owner names, raw ids, phone numbers, or emails.
 
 ### Debtor Publication In DAH
 
@@ -424,9 +477,16 @@ command. Keep live data out of examples; use placeholders for ids and secrets.
   notification route, without sending.
 - `DebtorReportService.by_entrance()`: group current debt by entrance/floor and,
   with `area_adjusted=True`, include debt per square meter.
+- `DebtorReportService.audit()`: inspect one apartment or premise with current
+  debt, safe local communication counts, and exact bank-income payment matches.
+- `DebtorReportService.snapshot()`: create an aggregate debt snapshot and
+  compare it with the latest local snapshot record.
 - `python3 main.py debtors-by-entrance`: CLI entrypoint for entrance/floor debt
   structure.
 - `python3 main.py debtors-next`: CLI entrypoint for the next notification queue.
+- `python3 main.py debtor-audit`: CLI entrypoint for one debtor audit.
+- `python3 main.py debt-snapshot`: CLI entrypoint for local aggregate debt
+  snapshots.
 
 ### Debtor Notifications
 
@@ -436,12 +496,17 @@ command. Keep live data out of examples; use placeholders for ids and secrets.
 - `DebtorNotificationRequest.notification_method`: choose `messenger`, `tenant`,
   or `auto`. `auto` uses messenger first, then tenant notification after prior
   successful messenger contact in the local ledger.
-- `DebtorNotificationRequest.recipient_scope`: choose `owners`, `others`, or
-  `auto`. `auto` tries owners first, then residents/renters stored as `others`.
+- `DebtorNotificationRequest.recipient_scope`: choose `owners`, `others`,
+  `owners+others`, or `auto`. `auto` tries owners first, then residents/renters
+  stored as `others`; `owners+others` intentionally targets both scopes.
 - `NotificationLedger`: local JSONL record of sent/skipped/manual contact
   outcomes. The default file `.dah-notifications.jsonl` is local and gitignored.
+- `NotificationLedger.record_manual_contact()`: append a sanitized offline or
+  phone contact record without storing phone numbers, emails, names, or ids.
 - `python3 main.py debtors-notify`: CLI entrypoint for dry-run and confirmed
   debtor notification sends.
+- `python3 main.py ledger-add-contact`: CLI entrypoint for manual contact ledger
+  records; it does not require DAH credentials.
 
 ### Apartments And Contacts
 
@@ -706,6 +771,8 @@ It also supports recipient source selection:
 - `--recipient-scope owners`: only use `owners`.
 - `--recipient-scope others`: only use `others`, such as residents or renters
   stored on the apartment record.
+- `--recipient-scope owners+others`: intentionally use both `owners` and
+  `others`, deduplicating ids before sending.
 
 The workflow is:
 
@@ -719,7 +786,8 @@ The workflow is:
    ledger records without `notificationMethod` are treated as messenger records.
 6. Select recipients from `<scope>[].user.userId` for messenger or
    `<scope>[].tenantId` for tenant notifications.
-7. Send only when `--send` is explicitly passed.
+7. With `owners+others`, merge both arrays and deduplicate ids.
+8. Send only when `--send` is explicitly passed.
 
 The command defaults to dry-run preview and returns `ready`, `sent`, and
 `skipped` arrays. It does not print owner names, phone numbers, or raw user ids.
@@ -752,6 +820,20 @@ operator queue.
 floor using apartment metadata from `apartment-list`. Use `--area-adjusted` to
 include `debtPerArea` and sort groups by debt per square meter instead of total
 debt.
+
+`debtor-audit` summarizes one apartment or premise without exposing owner
+names, raw ids, phones, or emails:
+
+```bash
+python3 main.py debtor-audit --apartment-number <number> --from-date <YYYY-MM-DDT00:00:00>
+```
+
+It combines current debt, local ledger history, and exact DAH bank-income
+matches.
+
+`python3 main.py debt-snapshot --write` stores one aggregate snapshot in
+`.dah-debt-snapshots.jsonl`. Later runs return `delta` against the latest saved
+snapshot. The file is local and gitignored.
 
 Default publications payload:
 
@@ -860,6 +942,7 @@ For compile-level checks:
 
 ```bash
 python3 -m py_compile dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py
+python3 .codex/skills/dah-api-client/scripts/validate_skill.py .codex/skills/dah-api-client
 python3 -m pytest
 python3 -m ruff check .
 python3 -m flake8

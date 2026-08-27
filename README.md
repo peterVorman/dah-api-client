@@ -57,6 +57,7 @@ so a manual `SSL_CERT_FILE` export is not required for normal use.
 
 ```bash
 python -m py_compile dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py
+python .codex/skills/dah-api-client/scripts/validate_skill.py .codex/skills/dah-api-client
 python -m pytest
 python -m ruff check .
 python -m flake8

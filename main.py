@@ -40,16 +40,23 @@ from dah_api import (
     load_env_file,
 )
 from debtor_notifications import (
+    CONTACT_STATUSES,
     DEFAULT_DEBTOR_MESSAGE_TEMPLATE,
     DEFAULT_NOTIFICATION_LEDGER_PATH,
+    NOTIFICATION_METHODS,
+    RECIPIENT_SCOPES,
     DebtorNotificationRequest,
     DebtorNotificationService,
+    NotificationLedger,
     format_debtor_notification_report,
 )
 from debtor_reports import (
+    DEFAULT_DEBT_SNAPSHOT_PATH,
+    DebtorAuditRequest,
     DebtorNextRequest,
     DebtorReportService,
     DebtorStructureRequest,
+    DebtSnapshotRequest,
 )
 
 MISSING_MESSENGER_GROUP_ID_MESSAGE = (
@@ -94,11 +101,18 @@ class DahCli:
             "debtors-next": lambda: DebtorReportService(client).next_to_notify(
                 self._build_debtor_next_request(args)
             ),
+            "debtor-audit": lambda: DebtorReportService(client).audit(
+                self._build_debtor_audit_request(args)
+            ),
             "debtors-notify": lambda: self._debtors_notify(args, client),
             "feedback-order-list": lambda: self._feedback_orders(args, client),
             "feedback-order-status": lambda: self._update_or_preview_order_status(
                 args, client
             ),
+            "debt-snapshot": lambda: DebtorReportService(client).snapshot(
+                self._build_debt_snapshot_request(args)
+            ),
+            "ledger-add-contact": lambda: self._ledger_add_contact(args),
             "tenant-notification-send": lambda: (
                 self._send_or_preview_tenant_notification(args, client)
             ),
@@ -110,10 +124,8 @@ class DahCli:
                 args, client
             ),
             "messenger-groups-page": lambda: self._messenger_groups(args, client),
-            "messenger-personal-group-get": lambda: (
-                client.get_messenger_personal_group(
-                    MessengerPersonalGroupRequest(args.interlocutor_id)
-                )
+            "messenger-personal-group-get": lambda: client.get_messenger_personal_group(
+                MessengerPersonalGroupRequest(args.interlocutor_id)
             ),
             "messenger-send-message": lambda: self._send_or_preview_message(
                 args, client
@@ -543,6 +555,112 @@ class DahCli:
             help="Include and sort by debt per known area.",
         )
 
+        audit_parser = subparsers.add_parser(
+            "debtor-audit",
+            help="Analyze one debtor with ledger contacts and matched payments.",
+            description=(
+                "Fetch current debt, local communication history, and exact "
+                "bank-income payment matches for one apartment or premise."
+            ),
+        )
+        add_association_id_argument(audit_parser)
+        add_debt_report_arguments(
+            audit_parser,
+            default_kind="apartment",
+            include_limit=False,
+        )
+        audit_parser.add_argument(
+            "--apartment-number",
+            required=True,
+            help="Exact apartment or premise number to audit.",
+        )
+        audit_parser.add_argument(
+            "--from-date",
+            required=True,
+            help=(
+                "Start date/time for payment matching; "
+                "example: 2026-07-01T00:00:00."
+            ),
+        )
+        add_ledger_path_argument(audit_parser)
+
+        snapshot_parser = subparsers.add_parser(
+            "debt-snapshot",
+            help="Create or compare an aggregate local debt snapshot.",
+            description=(
+                "Build aggregate debt totals and compare them with the latest "
+                "local snapshot. Use --write to append the current snapshot."
+            ),
+        )
+        add_association_id_argument(snapshot_parser)
+        add_debt_report_arguments(
+            snapshot_parser,
+            default_kind="all",
+            include_limit=False,
+        )
+        snapshot_parser.add_argument(
+            "--snapshot-path",
+            default=DEFAULT_DEBT_SNAPSHOT_PATH,
+            help="Local JSONL aggregate debt snapshot path.",
+        )
+        snapshot_parser.add_argument(
+            "--write",
+            action="store_true",
+            help="Append the current aggregate snapshot to the local file.",
+        )
+
+        ledger_parser = subparsers.add_parser(
+            "ledger-add-contact",
+            help="Append a manual debtor contact result to the local ledger.",
+            description="Record a safe local phone/offline contact outcome.",
+        )
+        ledger_parser.add_argument(
+            "--apartment-number",
+            required=True,
+            help="Exact apartment or premise number.",
+        )
+        ledger_parser.add_argument(
+            "--kind",
+            choices=("apartment", "premise"),
+            default="apartment",
+            help="Ledger subject kind. Defaults to apartment.",
+        )
+        ledger_parser.add_argument(
+            "--status",
+            choices=CONTACT_STATUSES,
+            required=True,
+            help="Manual contact outcome.",
+        )
+        ledger_parser.add_argument(
+            "--debt",
+            type=float,
+            default=0,
+            help="Current debt amount when known.",
+        )
+        ledger_parser.add_argument(
+            "--recipients",
+            type=int,
+            default=1,
+            help="Number of contacted or attempted recipients.",
+        )
+        ledger_parser.add_argument(
+            "--recipient-scope",
+            choices=RECIPIENT_SCOPES[1:],
+            default="owners",
+            help="Contacted recipient source.",
+        )
+        ledger_parser.add_argument(
+            "--note",
+            default="",
+            help="Short sanitized note. Do not include phone numbers or emails.",
+        )
+        ledger_parser.add_argument(
+            "--date",
+            dest="contact_date",
+            help="Contact date in YYYY-MM-DD. Defaults to today.",
+        )
+        add_ledger_path_argument(ledger_parser)
+
         feedback_order_parser = subparsers.add_parser(
             "feedback-order-list",
             help="POST /feedback/order/list/{associationId}",
@@ -574,8 +692,7 @@ class DahCli:
         tenant_notification_parser = subparsers.add_parser(
             "tenant-notification-send",
             help=(
-                "POST /communication/v1/client/notification/"
-                "{associationId}/tenant/send"
+                "POST /communication/v1/client/notification/{associationId}/tenant/send"
             ),
             description=(
                 "Build or send a DAH tenant notification. Defaults to preview; "
@@ -712,14 +829,15 @@ class DahCli:
         return parser
 
     def _build_config(self, args: argparse.Namespace) -> DahApiConfig:
-        auth_command = args.command in {
+        no_token_command = args.command in {
             "auth-status",
             "authentication-relogin",
             "authentication-web-login",
+            "ledger-add-contact",
         }
         token = os.getenv("DAH_BEARER_TOKEN", "")
         if not token:
-            if not auth_command:
+            if not no_token_command:
                 raise SystemExit(MISSING_BEARER_TOKEN_MESSAGE)
         return DahApiConfig(
             token=token,
@@ -729,7 +847,7 @@ class DahCli:
             referer=args.referer,
             user_agent=args.user_agent,
             timeout=args.timeout,
-            require_token=not auth_command,
+            require_token=not no_token_command,
         )
 
     def _build_publications_request(
@@ -844,6 +962,43 @@ class DahCli:
         return DebtorStructureRequest(
             **debtor_request_kwargs(args, include_limit=False),
             area_adjusted=args.area_adjusted,
+        )
+
+    def _build_debtor_audit_request(
+        self,
+        args: argparse.Namespace,
+    ) -> DebtorAuditRequest:
+        return DebtorAuditRequest(
+            apartment_number=args.apartment_number,
+            from_date=args.from_date,
+            association_id=args.association_id,
+            date=args.date,
+            debt_filter_accruals=args.debt_filter_accruals,
+            kind=args.kind,
+            ledger_path=args.ledger_path,
+        )
+
+    def _build_debt_snapshot_request(
+        self,
+        args: argparse.Namespace,
+    ) -> DebtSnapshotRequest:
+        return DebtSnapshotRequest(
+            **debtor_request_kwargs(args, include_limit=False),
+            snapshot_path=args.snapshot_path,
+            write_snapshot=args.write,
+        )
+
+    @staticmethod
+    def _ledger_add_contact(args: argparse.Namespace) -> dict[str, Any]:
+        return NotificationLedger(args.ledger_path).record_manual_contact(
+            apartment_number=args.apartment_number,
+            status=args.status,
+            debt=args.debt,
+            recipient_scope=args.recipient_scope,
+            recipients=args.recipients,
+            note=args.note,
+            kind=args.kind,
+            contact_date=args.contact_date,
         )
 
     def _build_apartment_list_request(
@@ -1138,7 +1293,7 @@ def add_debt_report_arguments(
 def add_notification_method_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--notification-method",
-        choices=("messenger", "tenant", "auto"),
+        choices=NOTIFICATION_METHODS,
         default="auto",
         help=(
             "Notification transport. Defaults to auto, which switches current "
@@ -1150,11 +1305,11 @@ def add_notification_method_argument(parser: argparse.ArgumentParser) -> None:
 def add_recipient_scope_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--recipient-scope",
-        choices=("auto", "owners", "others"),
+        choices=RECIPIENT_SCOPES,
         default="auto",
         help=(
-            "Recipient source. Defaults to auto: owners first, then others "
-            "when owners have no reachable recipient."
+            "Recipient source. Defaults to auto: owners first, then others as "
+            "fallback. Use owners+others to target both sources."
         ),
     )
 

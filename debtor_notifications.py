@@ -25,6 +25,15 @@ APARTMENT_NUMBER_RE = re.compile(
     re.IGNORECASE,
 )
 DEFAULT_NOTIFICATION_LEDGER_PATH = ".dah-notifications.jsonl"
+CONTACT_STATUSES = ("contacted", "no_answer")
+NOTIFICATION_METHODS = ("messenger", "tenant", "auto")
+PHONE_CALL_METHOD = "phone_call"
+RECIPIENT_SCOPES = ("auto", "owners", "others", "owners+others")
+PEOPLE_SCOPE_NAMES = {
+    "owners": ("owners",),
+    "others": ("others",),
+    "owners+others": ("owners", "others"),
+}
 DEFAULT_DEBTOR_MESSAGE_TEMPLATE = (
     "Добрий день. За даними DAH по {apartment_label} є заборгованість "
     "{debt} грн.\n\n"
@@ -455,7 +464,9 @@ def recipient_scopes_for(request: DebtorNotificationRequest) -> list[str]:
 
 def recipient_name(notification_method: str, recipient_scope: str) -> str:
     field_name = "tenant" if notification_method == "tenant" else "user"
-    scope_name = "other" if recipient_scope == "others" else "owner"
+    scope_name = "owner/other" if recipient_scope == "owners+others" else "owner"
+    if recipient_scope == "others":
+        scope_name = "other"
     return f"{scope_name} {field_name}"
 
 
@@ -521,8 +532,12 @@ def scoped_people(
     apartment: dict[str, Any],
     recipient_scope: str,
 ) -> list[dict[str, Any]]:
-    people = apartment.get("others" if recipient_scope == "others" else "owners") or []
-    return [person for person in people if isinstance(person, dict)]
+    return [
+        person
+        for scope_name in PEOPLE_SCOPE_NAMES.get(recipient_scope, ("owners",))
+        for person in apartment.get(scope_name) or []
+        if isinstance(person, dict)
+    ]
 
 
 def user_active_or_missing(person: dict[str, Any]) -> bool:
@@ -708,6 +723,57 @@ class NotificationLedger:
                     "recipientScope": record_recipient_scope(request, source),
                 }
             )
+
+    def record_manual_contact(
+        self,
+        *,
+        apartment_number: str,
+        status: str,
+        debt: float = 0,
+        recipient_scope: str = "owners",
+        recipients: int = 1,
+        note: str = "",
+        kind: str = "apartment",
+        contact_date: str | None = None,
+    ) -> dict[str, Any]:
+        record = manual_contact_record(
+            apartment_number=apartment_number,
+            status=status,
+            debt=debt,
+            recipient_scope=recipient_scope,
+            recipients=recipients,
+            note=note,
+            kind=kind,
+            contact_date=contact_date,
+        )
+        self.append(record)
+        return record
+
+
+def manual_contact_record(
+    *,
+    apartment_number: str,
+    status: str,
+    debt: float = 0,
+    recipient_scope: str = "owners",
+    recipients: int = 1,
+    note: str = "",
+    kind: str = "apartment",
+    contact_date: str | None = None,
+) -> dict[str, Any]:
+    record: dict[str, Any] = {
+        "date": contact_date or today_iso(),
+        "apartment": apartment_number,
+        "kind": kind,
+        "debt": round(debt, 2),
+        "status": status,
+        "recipients": recipients,
+        "notificationMethod": PHONE_CALL_METHOD,
+        "recipientScope": recipient_scope,
+    }
+    if note:
+        record["note"] = note
+    return record
 
 
 def ledger_record(line: str) -> dict[str, Any] | None:

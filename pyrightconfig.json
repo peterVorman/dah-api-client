@@ -3,6 +3,7 @@
     "dah_api.py",
     "auth_session.py",
     "debtor_notifications.py",
+    "debtor_reports.py",
     "main.py",
     "tests"
   ],

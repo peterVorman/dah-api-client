@@ -13,6 +13,7 @@ class FakeClient:
     access_error = None
     debt_response = None
     apartment_response = None
+    money_response = None
     groups_pages = [{"content": [{"id": "chat-id", "name": "2 підʼїзд"}], "last": True}]
 
     def __init__(self, config):
@@ -77,6 +78,9 @@ class FakeClient:
         return self.record("apartment-list", request)
 
     def list_money_transaction_bank(self, request):
+        if type(self).money_response is not None:
+            self.calls.append(("money-transaction-bank-list", request))
+            return type(self).money_response
         return self.record("money-transaction-bank-list", request)
 
     def list_messenger_group_messages(self, request):
@@ -123,6 +127,7 @@ def cli_env(monkeypatch, tmp_path):
     FakeClient.access_error = None
     FakeClient.debt_response = None
     FakeClient.apartment_response = None
+    FakeClient.money_response = None
     FakeClient.groups_pages = [
         {"content": [{"id": "chat-id", "name": "2 підʼїзд"}], "last": True}
     ]
@@ -384,7 +389,7 @@ CASES = [
         {"association_id": "assoc-id", "tenant_id": "tenant-id", "text": "Hello"},
     ),
     single(
-        args('apartment-list --association-id assoc-id --page 1 --size 25'),
+        args("apartment-list --association-id assoc-id --page 1 --size 25"),
         {"method": "apartment-list"},
         "apartment-list",
         ("association_id", "page", "size", "payload"),
@@ -505,7 +510,7 @@ def test_cli_reports_client_errors(cli_env, capsys, error, expected):
     assert FakeClient.instances[-1].calls == []
 
 
-def test_cli_errors_payloads_and_main(monkeypatch, tmp_path):
+def test_cli_without_token_commands(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "load_env_file", lambda: None)
     monkeypatch.delenv("DAH_BEARER_TOKEN", raising=False)
     monkeypatch.delenv("DAH_LOGIN", raising=False)
@@ -514,11 +519,27 @@ def test_cli_errors_payloads_and_main(monkeypatch, tmp_path):
         cli.DahCli().run(["access"])
 
     assert cli.DahCli().run(["authentication-web-login", "--dry-run"]) == 0
+    assert (
+        cli.DahCli().run(
+            [
+                "ledger-add-contact",
+                "--apartment-number",
+                "55",
+                "--status",
+                "no_answer",
+                "--ledger-path",
+                str(tmp_path / "ledger.jsonl"),
+            ]
+        )
+        == 0
+    )
 
     monkeypatch.setenv("DAH_BEARER_TOKEN", "unit-token")
     with pytest.raises(SystemExit, match="Missing messenger group id"):
         cli.DahCli().run(["messenger-group-messages"])
 
+
+def test_cli_payloads_and_main(monkeypatch, tmp_path):
     body_file = tmp_path / "body.json"
     body_file.write_text('{"file": true}', encoding="utf-8")
     assert {
@@ -572,8 +593,8 @@ def test_cli_tenant_notification_guards(cli_env, capsys):
         ("tenant-notification-send --text Hello", "Missing tenant id"),
         ("tenant-notification-send --tenant-id tenant-id", "Missing tenant"),
         (
-            "tenant-notification-send --body '{\"tenantId\":\"tenant-id\","
-            "\"text\":\"Hello\",\"details\":{}}'",
+            'tenant-notification-send --body \'{"tenantId":"tenant-id",'
+            '"text":"Hello","details":{}}\'',
             "details must be a JSON array",
         ),
         (
@@ -594,9 +615,7 @@ def test_cli_debtors_notify(cli_env, capsys):
         "content": [
             {
                 "number": "55",
-                "owners": [
-                    {"user": {"userId": "user-id", "userStatus": "ACTIVE"}}
-                ],
+                "owners": [{"user": {"userId": "user-id", "userStatus": "ACTIVE"}}],
             }
         ],
         "last": True,
@@ -747,6 +766,47 @@ def test_cli_debtors_notify_others_recipient_scope(cli_env, capsys):
     )
 
 
+def test_cli_debtors_notify_owners_plus_others_scope(cli_env, capsys):
+    FakeClient.debt_response = {
+        "rows": [{"apartmentName": "Квартира 84", "endBalance": -3644.52}]
+    }
+    FakeClient.apartment_response = {
+        "content": [
+            {
+                "number": "84",
+                "owners": [
+                    {
+                        "user": {
+                            "userId": "owner-user",
+                            "userStatus": "ACTIVE",
+                        }
+                    }
+                ],
+                "others": [
+                    {
+                        "user": {
+                            "userId": "other-user",
+                            "userStatus": "ACTIVE",
+                        }
+                    }
+                ],
+            }
+        ],
+        "last": True,
+    }
+
+    status, response, _, _ = run_cli(
+        args("debtors-notify --recipient-scope owners+others --apartment-number 84"),
+        capsys,
+    )
+
+    assert (
+        status,
+        response["ready"][0]["recipientScope"],
+        response["ready"][0]["recipients"],
+    ) == (0, "owners+others", 2)
+
+
 def test_cli_debtors_notify_formats_and_confirm(cli_env, capsys, tmp_path):
     ledger_path = tmp_path / "ledger.jsonl"
     FakeClient.debt_response = {
@@ -756,9 +816,7 @@ def test_cli_debtors_notify_formats_and_confirm(cli_env, capsys, tmp_path):
         "content": [
             {
                 "number": "55",
-                "owners": [
-                    {"user": {"userId": "user-id", "userStatus": "ACTIVE"}}
-                ],
+                "owners": [{"user": {"userId": "user-id", "userStatus": "ACTIVE"}}],
             }
         ],
         "last": True,
@@ -846,6 +904,53 @@ def test_cli_debtors_next_and_entrance(cli_env, capsys, tmp_path):
     )
 
 
+def test_cli_debtor_audit_and_snapshot(cli_env, capsys, tmp_path):
+    ledger_path = tmp_path / "ledger.jsonl"
+    snapshot_path = tmp_path / "snapshots.jsonl"
+    ledger_path.write_text(
+        '{"date":"2026-07-01","apartment":"55","status":"sent"}\n',
+        encoding="utf-8",
+    )
+    FakeClient.debt_response = {
+        "rows": [{"apartmentName": "Квартира 55", "endBalance": -4203.9}]
+    }
+    FakeClient.apartment_response = {
+        "content": [apartment("55", "1", 2, 50)],
+        "last": True,
+    }
+    FakeClient.money_response = {
+        "content": [
+            {
+                "operationDate": "2026-07-03T12:00:00",
+                "amount": 1000,
+                "analytics": {"name": "Квартира 55"},
+            }
+        ],
+        "last": True,
+    }
+
+    audit = run_cli(
+        args(
+            f"debtor-audit --apartment-number 55 --ledger-path {ledger_path} "
+            "--from-date 2026-07-01T00:00:00"
+        ),
+        capsys,
+    )[1]
+    snapshot = run_cli(
+        args(f"debt-snapshot --write --snapshot-path {snapshot_path}"),
+        capsys,
+    )[1]
+
+    assert (
+        audit["currentDebt"],
+        audit["ledger"]["records"],
+        audit["paymentTotal"],
+        snapshot["current"]["summary"]["debt"],
+        snapshot["previous"],
+        len(snapshot_path.read_text(encoding="utf-8").splitlines()),
+    ) == (4203.9, 1, 1000.0, 4203.9, None, 1)
+
+
 def test_cli_debtors_notify_send_limits(cli_env, capsys):
     FakeClient.debt_response = {
         "rows": [
@@ -873,8 +978,10 @@ def test_cli_debtors_notify_send_limits(cli_env, capsys):
 def test_cli_auth_save_env_local(cli_env, capsys, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     status, response, _, _ = run_cli(
-        args("authentication-web-login --body "
-             '\'{"login":"login","password":"password"}\' --save-env-local'),
+        args(
+            "authentication-web-login --body "
+            '\'{"login":"login","password":"password"}\' --save-env-local'
+        ),
         capsys,
     )
 

@@ -8,15 +8,27 @@ from dah_api import (
 from debtor_notifications import (
     DebtorNotificationRequest,
     DebtorNotificationService,
+    NotificationLedger,
+    active_owner_tenant_ids,
     active_owner_user_ids,
+    active_owner_users,
+    apartment_kind,
     apartment_number,
+    apartment_pages_finished,
     debtor_from,
     debtor_notification_table,
     debtor_notification_text,
+    first_list_value,
     format_debtor_notification_report,
     format_money,
+    ledger_record,
     message_apartment_label,
     missing_confirmations,
+    recipient_name,
+    record_apartment,
+    record_debt,
+    record_notification_method,
+    record_recipient_scope,
     rows_from,
     short_apartment_label,
     today_iso,
@@ -272,6 +284,62 @@ def test_debtor_notification_auto_falls_back_to_others():
     )
 
 
+def test_debtor_notification_owners_plus_others_scope(tmp_path):
+    class CombinedRecipientClient(NotificationClient):
+        def list_apartments(self, request):
+            self.apartment_request = request
+            return {
+                "content": [
+                    {
+                        "number": "55",
+                        "owners": [
+                            {
+                                "tenantId": "owner-tenant",
+                                "user": {
+                                    "userId": "owner-user",
+                                    "userStatus": "ACTIVE",
+                                },
+                            }
+                        ],
+                        "others": [
+                            {
+                                "tenantId": "other-tenant",
+                                "user": {
+                                    "userId": "other-user",
+                                    "userStatus": "ACTIVE",
+                                },
+                            }
+                        ],
+                    }
+                ],
+                "last": True,
+            }
+
+    client = CombinedRecipientClient()
+    report = DebtorNotificationService(client).run(
+        DebtorNotificationRequest(
+            apartment_numbers=["55"],
+            confirm_apartment_numbers=["55"],
+            ledger_path=str(tmp_path / "ledger.jsonl"),
+            notification_method="messenger",
+            recipient_scope="owners+others",
+            send=True,
+        )
+    )
+
+    assert (
+        report["ready"][0]["recipientScope"],
+        report["ready"][0]["recipients"],
+        report["sent"],
+        [item.group_id for item in client.sent],
+    ) == (
+        "owners+others",
+        2,
+        [{"apartment": "55", "recipients": 2}],
+        ["group-owner-user", "group-other-user"],
+    )
+
+
 def test_debtor_notification_ledger(tmp_path):
     ledger_path = tmp_path / "ledger.jsonl"
     client = NotificationClient()
@@ -296,6 +364,68 @@ def test_debtor_notification_ledger(tmp_path):
     assert excluded["ready"] == []
     assert '"apartment": "55"' in ledger_path.read_text(encoding="utf-8")
     assert f'"date": "{today_iso()}"' in ledger_path.read_text(encoding="utf-8")
+
+
+def test_debtor_notification_failed_send_records_ledger(tmp_path):
+    class FailedSendClient(NotificationClient):
+        def send_messenger_message(self, request):
+            raise DahRequestError("send failed")
+
+    ledger_path = tmp_path / "ledger.jsonl"
+    with pytest.raises(DahRequestError, match="send failed"):
+        DebtorNotificationService(FailedSendClient()).run(
+            DebtorNotificationRequest(
+                apartment_numbers=["55"],
+                confirm_apartment_numbers=["55"],
+                ledger_path=str(ledger_path),
+                send=True,
+            )
+        )
+
+    assert '"status": "failed"' in ledger_path.read_text(encoding="utf-8")
+
+
+def test_debtor_notification_ledger_records_skipped(tmp_path):
+    ledger_path = tmp_path / "ledger.jsonl"
+    request = DebtorNotificationRequest(ledger_path=str(ledger_path))
+    NotificationLedger(str(ledger_path)).record_skipped(
+        request,
+        [{"apartment": "84", "debt": 10, "notificationMethod": "messenger"}],
+    )
+
+    assert '"status": "skipped"' in ledger_path.read_text(encoding="utf-8")
+
+
+def test_debtor_notification_manual_contact_ledger(tmp_path):
+    ledger_path = tmp_path / "ledger.jsonl"
+    record = NotificationLedger(str(ledger_path)).record_manual_contact(
+        apartment_number="55",
+        status="no_answer",
+        debt=123.456,
+        recipient_scope="owners+others",
+        recipients=2,
+        note="No answer.",
+    )
+
+    assert (
+        record["apartment"],
+        record["status"],
+        record["debt"],
+        record["notificationMethod"],
+        record["recipientScope"],
+        record["recipients"],
+        record["note"],
+        NotificationLedger(str(ledger_path)).records(),
+    ) == (
+        "55",
+        "no_answer",
+        123.46,
+        "phone_call",
+        "owners+others",
+        2,
+        "No answer.",
+        [record],
+    )
 
 
 def test_debtor_notification_extract_helpers():
@@ -325,6 +455,60 @@ def test_debtor_notification_extract_helpers():
         ["u"],
         "1 234,50",
         [],
+    )
+
+
+def test_debtor_notification_edge_helpers():
+    active_user = {"userId": "u", "userStatus": "ACTIVE"}
+    source = {
+        "apartment": "55",
+        "debt": 7,
+        "notificationMethod": "tenant",
+        "recipientScope": "others",
+    }
+    request = DebtorNotificationRequest(
+        notification_method="auto",
+        recipient_scope="auto",
+    )
+
+    assert (
+        rows_from([{"ok": True}, "bad"]),
+        first_list_value({}),
+        debtor_from({"apartmentName": "", "endBalance": -1}),
+        apartment_kind({"type": {"type": "PREMISE"}}),
+        apartment_kind({"type": "APARTMENT"}),
+        message_apartment_label("Other"),
+        active_owner_tenant_ids({"owners": [{"tenantId": "t", "user": active_user}]}),
+        active_owner_users({"owners": [{"user": active_user}]}),
+        recipient_name("messenger", "others"),
+        apartment_pages_finished([], 0),
+        apartment_pages_finished({"totalPages": 1}, 0),
+        ledger_record("{"),
+        record_apartment(source),
+        record_debt(source),
+        record_notification_method(request, source),
+        record_notification_method(request, {}),
+        record_recipient_scope(request, source),
+        record_recipient_scope(request, {}),
+    ) == (
+        [{"ok": True}],
+        None,
+        None,
+        "premise",
+        "apartment",
+        "other",
+        ["t"],
+        [active_user],
+        "other user",
+        True,
+        True,
+        None,
+        "55",
+        7.0,
+        "tenant",
+        "auto",
+        "others",
+        "auto",
     )
 
 
