@@ -9,17 +9,19 @@ from pathlib import Path
 from typing import Any
 
 from dah_api import DahApiClient, MoneyTransactionBankListRequest
-from debtor_notifications import (
-    DEFAULT_NOTIFICATION_LEDGER_PATH,
-    DebtorNotificationRequest,
-    DebtorNotificationService,
-    NotificationLedger,
+from debtor_data import (
     apartment_for_debtor,
     apartment_kind,
     apartment_pages_finished,
     debtor_kind,
     format_money,
     rows_from,
+)
+from debtor_notifications import (
+    DEFAULT_NOTIFICATION_LEDGER_PATH,
+    DebtorNotificationRequest,
+    DebtorNotificationService,
+    NotificationLedger,
 )
 
 DEFAULT_DEBT_SNAPSHOT_PATH = ".dah-debt-snapshots.jsonl"
@@ -184,7 +186,7 @@ class DebtorReportService:
         area_entries = denominator_entries(apartments, request.kind)
         current = snapshot_payload(request, entries, area_entries)
         store = DebtSnapshotStore(request.snapshot_path)
-        previous = store.latest()
+        previous = store.latest_compatible(current)
         if request.write_snapshot:
             store.append(current)
         return {
@@ -205,13 +207,22 @@ class DebtSnapshotStore:
             handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True))
             handle.write("\n")
 
-    def latest(self) -> dict[str, Any] | None:
-        records = [
+    def latest_compatible(self, current: dict[str, Any]) -> dict[str, Any] | None:
+        return next(
+            (
+                record
+                for record in reversed(self.records())
+                if snapshot_compatible(current, record)
+            ),
+            None,
+        )
+
+    def records(self) -> list[dict[str, Any]]:
+        return [
             value
             for line in self._lines()
             if isinstance(value := json_record(line), dict)
         ]
-        return records[-1] if records else None
 
     def _lines(self) -> list[str]:
         if not self.path.exists():
@@ -443,6 +454,13 @@ def snapshot_delta(
         ),
         "entrances": entrance_delta(current, previous),
     }
+
+
+def snapshot_compatible(current: dict[str, Any], previous: dict[str, Any]) -> bool:
+    return all(
+        current.get(key) == previous.get(key)
+        for key in ("kind", "debtFilterAccruals", "minDebt")
+    )
 
 
 def entrance_delta(

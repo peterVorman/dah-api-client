@@ -136,10 +136,7 @@ def sanitize_auth_response(response: Any) -> Any:
 
 
 def sanitize_auth_dict(response: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: sanitized_auth_value(key, value)
-        for key, value in response.items()
-    }
+    return {key: sanitized_auth_value(key, value) for key, value in response.items()}
 
 
 def sanitize_auth_list(response: list[Any]) -> list[Any]:

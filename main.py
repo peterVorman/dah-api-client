@@ -11,12 +11,14 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from auth_session import auth_status, sanitize_auth_response, save_auth_env
+from auth_session import (
+    auth_env_updates,
+    auth_status,
+    sanitize_auth_response,
+    save_auth_env,
+)
+from cli_parser import build_parser
 from dah_api import (
-    DEFAULT_BASE_URL,
-    DEFAULT_ORIGIN,
-    DEFAULT_REFERER,
-    DEFAULT_USER_AGENT,
     MISSING_BEARER_TOKEN_MESSAGE,
     ApartmentListRequest,
     AuthenticationReloginRequest,
@@ -40,18 +42,12 @@ from dah_api import (
     load_env_file,
 )
 from debtor_notifications import (
-    CONTACT_STATUSES,
-    DEFAULT_DEBTOR_MESSAGE_TEMPLATE,
-    DEFAULT_NOTIFICATION_LEDGER_PATH,
-    NOTIFICATION_METHODS,
-    RECIPIENT_SCOPES,
     DebtorNotificationRequest,
     DebtorNotificationService,
     NotificationLedger,
     format_debtor_notification_report,
 )
 from debtor_reports import (
-    DEFAULT_DEBT_SNAPSHOT_PATH,
     DebtorAuditRequest,
     DebtorNextRequest,
     DebtorReportService,
@@ -59,15 +55,50 @@ from debtor_reports import (
     DebtSnapshotRequest,
 )
 
-MISSING_MESSENGER_GROUP_ID_MESSAGE = (
-    "Missing messenger group id. Set DAH_MESSENGER_GROUP_ID or pass --group-id."
-)
+MISSING_MESSENGER_GROUP_ID_MESSAGE = "Missing messenger group id. Pass --group-id."
+NO_TOKEN_COMMANDS = {
+    "auth-status",
+    "authentication-relogin",
+    "authentication-web-login",
+    "ledger-add-contact",
+}
+NO_BEARER_COMMANDS = {
+    "authentication-relogin",
+    "authentication-web-login",
+    "ledger-add-contact",
+}
+READ_ONLY_COMMANDS = {
+    "access",
+    "auth-status",
+    "publications-search",
+    "publication-get",
+    "bill-debt-analytics",
+    "debtors-by-entrance",
+    "debtors-next",
+    "debtor-audit",
+    "debt-snapshot",
+    "feedback-order-list",
+    "apartment-list",
+    "money-transaction-bank-list",
+    "messenger-group-messages",
+    "messenger-groups-page",
+    "messenger-personal-group-get",
+}
+DRY_RUN_READ_ONLY_COMMANDS = {
+    "feedback-order-status",
+    "messenger-send-message",
+    "publication-save",
+}
+SEND_FLAG_READ_ONLY_COMMANDS = {
+    "debtors-notify",
+    "tenant-notification-send",
+}
 
 
 class DahCli:
     def __init__(self) -> None:
         load_env_file()
-        self.parser = self._build_parser()
+        self.parser = build_parser()
 
     def run(self, argv: list[str] | None = None) -> int:
         args = self.parser.parse_args(argv)
@@ -76,6 +107,8 @@ class DahCli:
         try:
             response_data = self._dispatch(args, client)
         except DahHttpError as exc:
+            if self._should_retry_auth(args, exc):
+                return self._run_after_auth_refresh(args)
             return self._print_http_error(exc)
         except DahRequestError as exc:
             print(str(exc), file=sys.stderr)
@@ -84,6 +117,75 @@ class DahCli:
         self._print_response(response_data, args.compact)
         return 0
 
+    def _run_after_auth_refresh(self, args: argparse.Namespace) -> int:
+        try:
+            self._refresh_auth(args)
+            response_data = self._dispatch(args, DahApiClient(self._build_config(args)))
+        except DahHttpError as exc:
+            return self._print_http_error(exc)
+        except DahRequestError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        self._print_response(response_data, args.compact)
+        return 0
+
+    def _refresh_auth(self, args: argparse.Namespace) -> None:
+        client = DahApiClient(
+            DahApiConfig(
+                base_url=args.base_url,
+                tab_id=args.tab_id,
+                origin=args.origin,
+                referer=args.referer,
+                user_agent=args.user_agent,
+                timeout=args.timeout,
+                require_token=False,
+            )
+        )
+        response = self._refresh_auth_response(client)
+        updates = auth_env_updates(response)
+        if not updates.get("DAH_BEARER_TOKEN"):
+            raise DahRequestError("DAH auth refresh did not return a bearer token.")
+        save_auth_env(response)
+        os.environ.update(updates)
+
+    @staticmethod
+    def _refresh_auth_response(client: DahApiClient) -> Any:
+        refresh_token = os.getenv("DAH_REFRESH_TOKEN")
+        if not refresh_token:
+            return DahCli._web_login_auth_response(client)
+        try:
+            return client.authentication_relogin(
+                AuthenticationReloginRequest(
+                    refresh_token=refresh_token,
+                    device_id=os.getenv("DAH_DEVICE_ID"),
+                )
+            )
+        except DahHttpError as exc:
+            if exc.status_code != 401:
+                raise
+            return DahCli._web_login_auth_response(client)
+
+    @staticmethod
+    def _web_login_auth_response(client: DahApiClient) -> Any:
+        login = os.getenv("DAH_LOGIN", "")
+        password = os.getenv("DAH_PASSWORD", "")
+        if login and password:
+            return client.authentication_web_login(
+                AuthenticationWebLoginRequest(login=login, password=password)
+            )
+        raise DahRequestError(
+            "Unable to refresh DAH auth. Set DAH_REFRESH_TOKEN "
+            "or DAH_LOGIN/DAH_PASSWORD."
+        )
+
+    @staticmethod
+    def _should_retry_auth(args: argparse.Namespace, exc: DahHttpError) -> bool:
+        return (
+            exc.status_code == 401
+            and "invalid_access_token" in exc.body
+            and command_is_read_only(args)
+        )
+
     def _dispatch(self, args: argparse.Namespace, client: DahApiClient) -> Any:
         handlers = {
             "access": client.get_access,
@@ -91,10 +193,14 @@ class DahCli:
             "authentication-web-login": lambda: self._login_or_preview(args, client),
             "authentication-relogin": lambda: self._relogin_or_preview(args, client),
             "authentication-exit": client.authentication_exit,
-            "publications-search": lambda: self._publications_search(args, client),
+            "publications-search": lambda: client.search_publications(
+                self._build_publications_request(args)
+            ),
             "publication-get": lambda: client.get_publication(args.publication_id),
             "publication-save": lambda: self._save_or_preview_publication(args, client),
-            "bill-debt-analytics": lambda: self._bill_debt_analytics(args, client),
+            "bill-debt-analytics": lambda: client.get_bill_debt_analytics(
+                self._build_bill_debt_analytics_request(args)
+            ),
             "debtors-by-entrance": lambda: DebtorReportService(client).by_entrance(
                 self._build_debtor_structure_request(args)
             ),
@@ -105,7 +211,9 @@ class DahCli:
                 self._build_debtor_audit_request(args)
             ),
             "debtors-notify": lambda: self._debtors_notify(args, client),
-            "feedback-order-list": lambda: self._feedback_orders(args, client),
+            "feedback-order-list": lambda: client.list_feedback_orders(
+                self._build_feedback_order_list_request(args)
+            ),
             "feedback-order-status": lambda: self._update_or_preview_order_status(
                 args, client
             ),
@@ -116,14 +224,18 @@ class DahCli:
             "tenant-notification-send": lambda: (
                 self._send_or_preview_tenant_notification(args, client)
             ),
-            "apartment-list": lambda: self._apartments(args, client),
-            "money-transaction-bank-list": lambda: self._bank_transactions(
-                args, client
+            "apartment-list": lambda: client.list_apartments(
+                self._build_apartment_list_request(args)
             ),
-            "messenger-group-messages": lambda: self._messenger_group_messages(
-                args, client
+            "money-transaction-bank-list": lambda: client.list_money_transaction_bank(
+                self._build_money_transaction_bank_list_request(args)
             ),
-            "messenger-groups-page": lambda: self._messenger_groups(args, client),
+            "messenger-group-messages": lambda: client.list_messenger_group_messages(
+                self._build_messenger_group_messages_request(args)
+            ),
+            "messenger-groups-page": lambda: client.list_messenger_groups(
+                self._build_messenger_groups_page_request(args)
+            ),
             "messenger-personal-group-get": lambda: client.get_messenger_personal_group(
                 MessengerPersonalGroupRequest(args.interlocutor_id)
             ),
@@ -157,65 +269,6 @@ class DahCli:
             except (DahHttpError, DahRequestError) as exc:
                 error = str(exc)
         return auth_status(client.config.token, access_data, error)
-
-    def _publications_search(
-        self,
-        args: argparse.Namespace,
-        client: DahApiClient,
-    ) -> Any:
-        return client.search_publications(self._build_publications_request(args))
-
-    def _bill_debt_analytics(
-        self,
-        args: argparse.Namespace,
-        client: DahApiClient,
-    ) -> Any:
-        return client.get_bill_debt_analytics(
-            self._build_bill_debt_analytics_request(args)
-        )
-
-    def _feedback_orders(
-        self,
-        args: argparse.Namespace,
-        client: DahApiClient,
-    ) -> Any:
-        return client.list_feedback_orders(
-            self._build_feedback_order_list_request(args)
-        )
-
-    def _apartments(
-        self,
-        args: argparse.Namespace,
-        client: DahApiClient,
-    ) -> Any:
-        return client.list_apartments(self._build_apartment_list_request(args))
-
-    def _bank_transactions(
-        self,
-        args: argparse.Namespace,
-        client: DahApiClient,
-    ) -> Any:
-        return client.list_money_transaction_bank(
-            self._build_money_transaction_bank_list_request(args)
-        )
-
-    def _messenger_group_messages(
-        self,
-        args: argparse.Namespace,
-        client: DahApiClient,
-    ) -> Any:
-        return client.list_messenger_group_messages(
-            self._build_messenger_group_messages_request(args)
-        )
-
-    def _messenger_groups(
-        self,
-        args: argparse.Namespace,
-        client: DahApiClient,
-    ) -> Any:
-        return client.list_messenger_groups(
-            self._build_messenger_groups_page_request(args)
-        )
 
     def _update_or_preview_order_status(
         self,
@@ -300,542 +353,13 @@ class DahCli:
         )
         return format_debtor_notification_report(report, args.format)
 
-    def _build_parser(self) -> argparse.ArgumentParser:
-        parser = argparse.ArgumentParser(
-            description="Send requests to the DAH cabinet API.",
-        )
-        parser.add_argument(
-            "--base-url",
-            default=os.getenv("DAH_BASE_URL", DEFAULT_BASE_URL),
-            help="API base URL.",
-        )
-        parser.add_argument(
-            "--tab-id",
-            default=os.getenv("DAH_TAB_ID"),
-            help="X-DAH-TabId header. Defaults to DAH_TAB_ID when set.",
-        )
-        parser.add_argument(
-            "--origin",
-            default=os.getenv("DAH_ORIGIN", DEFAULT_ORIGIN),
-            help="Origin header value.",
-        )
-        parser.add_argument(
-            "--referer",
-            default=os.getenv("DAH_REFERER", DEFAULT_REFERER),
-            help="Referer header value.",
-        )
-        parser.add_argument(
-            "--user-agent",
-            default=os.getenv("DAH_USER_AGENT", DEFAULT_USER_AGENT),
-            help="User-Agent header value.",
-        )
-        parser.add_argument(
-            "--timeout",
-            type=float,
-            default=30,
-            help="HTTP timeout in seconds.",
-        )
-        parser.add_argument(
-            "--compact",
-            action="store_true",
-            help="Print compact JSON instead of pretty JSON.",
-        )
-
-        subparsers = parser.add_subparsers(dest="command", required=True)
-
-        subparsers.add_parser(
-            "access",
-            help="GET /organization/v1/access",
-            description="Fetch organization access data.",
-        )
-
-        subparsers.add_parser(
-            "auth-status",
-            help="Inspect local bearer token state and get_access reachability.",
-            description="Show sanitized local DAH authentication status.",
-        )
-
-        login_parser = subparsers.add_parser(
-            "authentication-web-login",
-            help="POST /authentication/web/login",
-            description="Authenticate through the DAH web login endpoint.",
-        )
-        login_parser.add_argument(
-            "--client-id",
-            default="DAH_CLIENT_WEB",
-            help="Client id value. Defaults to DAH_CLIENT_WEB.",
-        )
-        login_parser.add_argument(
-            "--dry-run",
-            action="store_true",
-            help="Print the login request body without sending it.",
-        )
-        add_save_env_argument(login_parser)
-        add_body_arguments(login_parser)
-
-        relogin_parser = subparsers.add_parser(
-            "authentication-relogin",
-            help="POST /authentication/relogin",
-            description="Refresh DAH authentication through the relogin endpoint.",
-        )
-        relogin_parser.add_argument(
-            "--device-id",
-            default=os.getenv("DAH_DEVICE_ID"),
-            help="Device id. Defaults to DAH_DEVICE_ID when set.",
-        )
-        relogin_parser.add_argument(
-            "--client-id",
-            default="DAH_CLIENT_WEB",
-            help="Client id value. Defaults to DAH_CLIENT_WEB.",
-        )
-        relogin_parser.add_argument(
-            "--client-type",
-            default="WEB",
-            help="Client type value. Defaults to WEB.",
-        )
-        relogin_parser.add_argument(
-            "--dry-run",
-            action="store_true",
-            help="Print the relogin request body without sending it.",
-        )
-        add_save_env_argument(relogin_parser)
-        add_body_arguments(relogin_parser)
-
-        subparsers.add_parser(
-            "authentication-exit",
-            help="GET /authentication/exit",
-            description="Exit the current DAH authenticated session.",
-        )
-
-        publications_parser = subparsers.add_parser(
-            "publications-search",
-            help="POST /publications/search",
-            description="Search publications.",
-        )
-        add_paging_arguments(publications_parser, size=5)
-        add_body_arguments(publications_parser)
-
-        publication_get_parser = subparsers.add_parser(
-            "publication-get",
-            help="GET /publications/get/{publicationId}",
-            description="Fetch a publication by id.",
-        )
-        publication_get_parser.add_argument(
-            "publication_id",
-            help="Publication id path parameter.",
-        )
-
-        publication_save_parser = subparsers.add_parser(
-            "publication-save",
-            help="POST /publications/v2/add/web or PUT /publications/v2/edit/web",
-            description="Create or edit a publication. Include id to edit.",
-        )
-        publication_save_parser.add_argument(
-            "--dry-run",
-            action="store_true",
-            help="Print the publication request body without saving it.",
-        )
-        add_body_arguments(publication_save_parser, required=True)
-
-        debt_analytics_parser = subparsers.add_parser(
-            "bill-debt-analytics",
-            help="POST /accounting/v1/report/bill/{associationId}/debt/analytics",
-            description="Fetch bill debt analytics.",
-        )
-        add_association_id_argument(debt_analytics_parser)
-        debt_analytics_parser.add_argument(
-            "--date",
-            help=(
-                "Report date in YYYY-MM-DDTHH:MM. Defaults to the current local minute."
-            ),
-        )
-        debt_analytics_parser.add_argument(
-            "--debt-filter-accruals",
-            type=int,
-            default=1,
-            help="Value for debtFilterAccruals in the default request body.",
-        )
-        add_body_arguments(debt_analytics_parser)
-
-        notify_parser = subparsers.add_parser(
-            "debtors-notify",
-            help="Notify debtors through DAH messenger or tenant notifications.",
-            description=(
-                "Build or send DAH debtor notifications. Defaults to dry-run "
-                "preview and automatic channel selection; use --send to write."
-            ),
-        )
-        add_association_id_argument(notify_parser)
-        add_debt_report_arguments(notify_parser, default_kind="all", default_limit=None)
-        add_notification_method_argument(notify_parser)
-        add_recipient_scope_argument(notify_parser)
-        notify_parser.add_argument(
-            "--apartment-number",
-            action="append",
-            default=[],
-            help="Exact apartment number to include. Can be passed multiple times.",
-        )
-        notify_parser.add_argument(
-            "--message-template",
-            default=DEFAULT_DEBTOR_MESSAGE_TEMPLATE,
-            help="Message template with {apartment_label} and {debt}.",
-        )
-        notify_parser.add_argument(
-            "--send",
-            action="store_true",
-            help="Actually send messages. Omit for dry-run preview.",
-        )
-        notify_parser.add_argument(
-            "--confirm",
-            action="append",
-            default=[],
-            help="Apartment number confirmed for --send. Repeat for batches.",
-        )
-        notify_parser.add_argument(
-            "--max-send",
-            type=int,
-            help="Refuse --send when more than this many messages are ready.",
-        )
-        notify_parser.add_argument(
-            "--one-by-one",
-            action="store_true",
-            help="Shortcut for --max-send 1.",
-        )
-        add_ledger_arguments(notify_parser)
-        notify_parser.add_argument(
-            "--exclude-notified-today",
-            action="store_true",
-            help="Exclude apartments with sent records in today's ledger.",
-        )
-        notify_parser.add_argument(
-            "--format",
-            choices=("json", "table", "text"),
-            default="json",
-            help="Output format. Defaults to json.",
-        )
-
-        next_parser = subparsers.add_parser(
-            "debtors-next",
-            help="Show next ready debtor notifications.",
-            description=(
-                "List next debtors ready for the selected DAH notification method."
-            ),
-        )
-        add_association_id_argument(next_parser)
-        add_debt_report_arguments(next_parser)
-        add_notification_method_argument(next_parser)
-        add_recipient_scope_argument(next_parser)
-        next_parser.add_argument(
-            "--exclude-notified-today",
-            action="store_true",
-            help="Exclude apartments with sent records in today's ledger.",
-        )
-        add_ledger_path_argument(next_parser)
-        next_parser.add_argument(
-            "--format",
-            choices=("json", "table", "text"),
-            default="json",
-            help="Output format. Defaults to json.",
-        )
-
-        structure_parser = subparsers.add_parser(
-            "debtors-by-entrance",
-            help="Analyze debtor debt by entrance and floor.",
-            description="Group current debtor debt by apartment entrance and floor.",
-        )
-        add_association_id_argument(structure_parser)
-        add_debt_report_arguments(
-            structure_parser,
-            default_kind="apartment",
-            include_limit=False,
-        )
-        structure_parser.add_argument(
-            "--area-adjusted",
-            action="store_true",
-            help="Include and sort by debt per known area.",
-        )
-
-        audit_parser = subparsers.add_parser(
-            "debtor-audit",
-            help="Analyze one debtor with ledger contacts and matched payments.",
-            description=(
-                "Fetch current debt, local communication history, and exact "
-                "bank-income payment matches for one apartment or premise."
-            ),
-        )
-        add_association_id_argument(audit_parser)
-        add_debt_report_arguments(
-            audit_parser,
-            default_kind="apartment",
-            include_limit=False,
-        )
-        audit_parser.add_argument(
-            "--apartment-number",
-            required=True,
-            help="Exact apartment or premise number to audit.",
-        )
-        audit_parser.add_argument(
-            "--from-date",
-            required=True,
-            help=(
-                "Start date/time for payment matching; "
-                "example: 2026-07-01T00:00:00."
-            ),
-        )
-        add_ledger_path_argument(audit_parser)
-
-        snapshot_parser = subparsers.add_parser(
-            "debt-snapshot",
-            help="Create or compare an aggregate local debt snapshot.",
-            description=(
-                "Build aggregate debt totals and compare them with the latest "
-                "local snapshot. Use --write to append the current snapshot."
-            ),
-        )
-        add_association_id_argument(snapshot_parser)
-        add_debt_report_arguments(
-            snapshot_parser,
-            default_kind="all",
-            include_limit=False,
-        )
-        snapshot_parser.add_argument(
-            "--snapshot-path",
-            default=DEFAULT_DEBT_SNAPSHOT_PATH,
-            help="Local JSONL aggregate debt snapshot path.",
-        )
-        snapshot_parser.add_argument(
-            "--write",
-            action="store_true",
-            help="Append the current aggregate snapshot to the local file.",
-        )
-
-        ledger_parser = subparsers.add_parser(
-            "ledger-add-contact",
-            help="Append a manual debtor contact result to the local ledger.",
-            description="Record a safe local phone/offline contact outcome.",
-        )
-        ledger_parser.add_argument(
-            "--apartment-number",
-            required=True,
-            help="Exact apartment or premise number.",
-        )
-        ledger_parser.add_argument(
-            "--kind",
-            choices=("apartment", "premise"),
-            default="apartment",
-            help="Ledger subject kind. Defaults to apartment.",
-        )
-        ledger_parser.add_argument(
-            "--status",
-            choices=CONTACT_STATUSES,
-            required=True,
-            help="Manual contact outcome.",
-        )
-        ledger_parser.add_argument(
-            "--debt",
-            type=float,
-            default=0,
-            help="Current debt amount when known.",
-        )
-        ledger_parser.add_argument(
-            "--recipients",
-            type=int,
-            default=1,
-            help="Number of contacted or attempted recipients.",
-        )
-        ledger_parser.add_argument(
-            "--recipient-scope",
-            choices=RECIPIENT_SCOPES[1:],
-            default="owners",
-            help="Contacted recipient source.",
-        )
-        ledger_parser.add_argument(
-            "--note",
-            default="",
-            help="Short sanitized note. Do not include phone numbers or emails.",
-        )
-        ledger_parser.add_argument(
-            "--date",
-            dest="contact_date",
-            help="Contact date in YYYY-MM-DD. Defaults to today.",
-        )
-        add_ledger_path_argument(ledger_parser)
-
-        feedback_order_parser = subparsers.add_parser(
-            "feedback-order-list",
-            help="POST /feedback/order/list/{associationId}",
-            description="Fetch feedback order list.",
-        )
-        add_association_id_argument(feedback_order_parser)
-        add_body_arguments(feedback_order_parser)
-
-        feedback_status_parser = subparsers.add_parser(
-            "feedback-order-status",
-            help="PUT /feedback/order/comment/{orderId}",
-            description="Update feedback order status.",
-        )
-        feedback_status_parser.add_argument(
-            "order_id",
-            help="Feedback order id path parameter.",
-        )
-        feedback_status_parser.add_argument(
-            "--status",
-            default="DONE",
-            help="Status value to send. Defaults to DONE.",
-        )
-        feedback_status_parser.add_argument(
-            "--dry-run",
-            action="store_true",
-            help="Print the status request body without sending it.",
-        )
-
-        tenant_notification_parser = subparsers.add_parser(
-            "tenant-notification-send",
-            help=(
-                "POST /communication/v1/client/notification/{associationId}/tenant/send"
-            ),
-            description=(
-                "Build or send a DAH tenant notification. Defaults to preview; "
-                "use --send with --confirm-tenant-id to write."
-            ),
-        )
-        add_association_id_argument(tenant_notification_parser)
-        tenant_notification_parser.add_argument(
-            "--tenant-id",
-            help="Tenant id used as tenantId in the request body.",
-        )
-        tenant_notification_parser.add_argument(
-            "--text",
-            help="Plain text notification body.",
-        )
-        tenant_notification_parser.add_argument(
-            "--text-html",
-            help="HTML notification body. Defaults to escaped --text wrapped in <p>.",
-        )
-        tenant_notification_parser.add_argument(
-            "--send",
-            action="store_true",
-            help="Actually send the tenant notification. Omit for preview.",
-        )
-        tenant_notification_parser.add_argument(
-            "--confirm-tenant-id",
-            help="Tenant id confirmation required with --send.",
-        )
-        add_body_arguments(tenant_notification_parser)
-
-        apartment_parser = subparsers.add_parser(
-            "apartment-list",
-            help="POST /organization/v1/apartment/{associationId}/list",
-            description="Fetch apartments and owner metadata.",
-        )
-        add_association_id_argument(apartment_parser)
-        add_paging_arguments(apartment_parser)
-        add_body_arguments(apartment_parser)
-
-        money_transaction_parser = subparsers.add_parser(
-            "money-transaction-bank-list",
-            help="POST /accounting/v1/money/transaction/{associationId}/list/bank",
-            description="Fetch bank money transactions.",
-        )
-        add_association_id_argument(money_transaction_parser)
-        add_paging_arguments(money_transaction_parser)
-        money_transaction_parser.add_argument(
-            "--direction",
-            default="EXPENSE",
-            help="Transaction direction in the default request body.",
-        )
-        money_transaction_parser.add_argument(
-            "--from-date",
-            help=(
-                "Start date/time for the default request body, "
-                "for example 2026-07-01T00:00:00."
-            ),
-        )
-        add_body_arguments(money_transaction_parser)
-
-        messenger_parser = subparsers.add_parser(
-            "messenger-group-messages",
-            help="POST /messenger/groups/{groupId}/messages",
-            description="Fetch messenger group messages.",
-        )
-        messenger_parser.add_argument(
-            "--group-id",
-            default=os.getenv("DAH_MESSENGER_GROUP_ID"),
-            help=(
-                "Messenger group id path parameter. Defaults to DAH_MESSENGER_GROUP_ID."
-            ),
-        )
-        add_paging_arguments(messenger_parser)
-        add_body_arguments(messenger_parser)
-
-        messenger_groups_parser = subparsers.add_parser(
-            "messenger-groups-page",
-            help="POST /messenger/groups/page",
-            description="Fetch messenger groups page.",
-        )
-        add_paging_arguments(messenger_groups_parser)
-        add_body_arguments(messenger_groups_parser)
-
-        send_message_parser = subparsers.add_parser(
-            "messenger-send-message",
-            help="POST /messenger/messages",
-            description="Send a text message to a messenger chat.",
-        )
-        chat_target_group = send_message_parser.add_mutually_exclusive_group(
-            required=True,
-        )
-        chat_target_group.add_argument(
-            "--chat-name",
-            help="Exact messenger chat name to resolve before sending.",
-        )
-        chat_target_group.add_argument(
-            "--group-id",
-            help="Messenger group id. Use this to skip chat-name lookup.",
-        )
-        chat_target_group.add_argument(
-            "--interlocutor-id",
-            help="Owner/user id used to resolve a personal messenger group.",
-        )
-        send_message_parser.add_argument(
-            "--message-type",
-            default="TEXT",
-            help="Message type. Defaults to TEXT.",
-        )
-        send_message_parser.add_argument(
-            "--create-time",
-            type=int,
-            help="createTime value in epoch milliseconds. Defaults to now.",
-        )
-        send_message_parser.add_argument(
-            "--dry-run",
-            action="store_true",
-            help="Print the message request body without sending it.",
-        )
-        send_message_parser.add_argument(
-            "message",
-            help="Message text to send.",
-        )
-
-        personal_group_parser = subparsers.add_parser(
-            "messenger-personal-group-get",
-            help="GET /messenger/groups/personal/{interlocutorId}/get",
-            description="Fetch or create a personal messenger group by user id.",
-        )
-        personal_group_parser.add_argument(
-            "interlocutor_id",
-            help="Owner/user id for the personal messenger group.",
-        )
-
-        return parser
-
     def _build_config(self, args: argparse.Namespace) -> DahApiConfig:
-        no_token_command = args.command in {
-            "auth-status",
-            "authentication-relogin",
-            "authentication-web-login",
-            "ledger-add-contact",
-        }
-        token = os.getenv("DAH_BEARER_TOKEN", "")
+        no_token_command = args.command in NO_TOKEN_COMMANDS
+        token = (
+            ""
+            if args.command in NO_BEARER_COMMANDS
+            else os.getenv("DAH_BEARER_TOKEN", "")
+        )
         if not token:
             if not no_token_command:
                 raise SystemExit(MISSING_BEARER_TOKEN_MESSAGE)
@@ -1195,144 +719,16 @@ class PersonalGroupResolver:
         return group_id
 
 
-def add_association_id_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--association-id",
-        default=os.getenv("DAH_ASSOCIATION_ID"),
-        help=(
-            "Association id path parameter. Defaults to DAH_ASSOCIATION_ID "
-            "or a single id resolved from get_access."
-        ),
-    )
-
-
-def add_paging_arguments(
-    parser: argparse.ArgumentParser,
-    *,
-    size: int = 50,
-) -> None:
-    parser.add_argument(
-        "--page",
-        type=int,
-        default=0,
-        help="0-based page number.",
-    )
-    parser.add_argument(
-        "--size",
-        type=int,
-        default=size,
-        help="Page size.",
-    )
-
-
-def add_body_arguments(
-    parser: argparse.ArgumentParser,
-    *,
-    required: bool = False,
-) -> None:
-    body_group = parser.add_mutually_exclusive_group(required=required)
-    body_group.add_argument(
-        "--body",
-        help="Inline JSON body to send to the endpoint.",
-    )
-    body_group.add_argument(
-        "--body-file",
-        help="Path to a JSON file containing the request body.",
-    )
-
-
-def add_save_env_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--save-env-local",
-        action="store_true",
-        help="Save returned auth tokens to .env.local without printing them.",
-    )
-
-
-def add_debt_report_arguments(
-    parser: argparse.ArgumentParser,
-    *,
-    default_kind: str = "apartment",
-    include_limit: bool = True,
-    default_limit: int | None = 15,
-) -> None:
-    parser.add_argument(
-        "--date",
-        help="Report date in YYYY-MM-DDTHH:MM. Defaults to the current local minute.",
-    )
-    parser.add_argument(
-        "--debt-filter-accruals",
-        type=int,
-        default=1,
-        help="Value for debtFilterAccruals in the default debt request body.",
-    )
-    parser.add_argument(
-        "--min-debt",
-        type=float,
-        default=0,
-        help="Minimum debt amount to include. Defaults to 0.",
-    )
-    if include_limit:
-        help_text = "Maximum number of rows to include."
-        if default_limit is not None:
-            help_text += f" Defaults to {default_limit}."
-        parser.add_argument(
-            "--limit",
-            type=int,
-            default=default_limit,
-            help=help_text,
-        )
-    parser.add_argument(
-        "--kind",
-        choices=("all", "apartment", "premise"),
-        default=default_kind,
-        help=f"Debtor kind to include. Defaults to {default_kind}.",
-    )
-
-
-def add_notification_method_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--notification-method",
-        choices=NOTIFICATION_METHODS,
-        default="auto",
-        help=(
-            "Notification transport. Defaults to auto, which switches current "
-            "debtors with previous messenger sends to tenant notifications."
-        ),
-    )
-
-
-def add_recipient_scope_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--recipient-scope",
-        choices=RECIPIENT_SCOPES,
-        default="auto",
-        help=(
-            "Recipient source. Defaults to auto: owners first, then others as "
-            "fallback. Use owners+others to target both sources."
-        ),
-    )
-
-
-def add_ledger_arguments(parser: argparse.ArgumentParser) -> None:
-    add_ledger_path_argument(parser)
-    parser.add_argument(
-        "--no-ledger",
-        action="store_true",
-        help="Do not write notification results to the local ledger.",
-    )
-
-
-def add_ledger_path_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--ledger-path",
-        default=DEFAULT_NOTIFICATION_LEDGER_PATH,
-        help="Local JSONL notification ledger path.",
-    )
-
-
 def debtor_notify_max_send(args: argparse.Namespace) -> int | None:
     return 1 if args.one_by_one else args.max_send
+
+
+def command_is_read_only(args: argparse.Namespace) -> bool:
+    return (
+        args.command in READ_ONLY_COMMANDS
+        or (args.command in DRY_RUN_READ_ONLY_COMMANDS and bool(args.dry_run))
+        or (args.command in SEND_FLAG_READ_ONLY_COMMANDS and not bool(args.send))
+    )
 
 
 def debtor_request_kwargs(

@@ -178,6 +178,9 @@ def test_debtor_audit_with_ledger_and_payments(tmp_path):
 def test_debt_snapshot_compares_and_writes(tmp_path):
     snapshot_path = tmp_path / "snapshots.jsonl"
     previous = {
+        "kind": "all",
+        "debtFilterAccruals": 1,
+        "minDebt": 0,
         "summary": {"count": 2, "debt": 5000, "area": 400, "debtPerArea": 12.5},
         "entrances": [{"entrance": "1", "debt": 2500, "area": 200}],
     }
@@ -205,6 +208,43 @@ def test_debt_snapshot_compares_and_writes(tmp_path):
         500.0,
         2,
     )
+
+
+def test_debt_snapshot_uses_latest_compatible_snapshot(tmp_path):
+    snapshot_path = tmp_path / "snapshots.jsonl"
+    compatible = {
+        "kind": "all",
+        "debtFilterAccruals": 1,
+        "minDebt": 0,
+        "summary": {"count": 2, "debt": 5000, "area": 400, "debtPerArea": 12.5},
+        "entrances": [{"entrance": "1", "debt": 2500, "area": 200}],
+    }
+    incompatible = {
+        "kind": "premise",
+        "debtFilterAccruals": 1,
+        "minDebt": 0,
+        "summary": {"count": 1, "debt": 3000, "area": 200, "debtPerArea": 15},
+        "entrances": [{"entrance": "Без підʼїзду", "debt": 3000, "area": 200}],
+    }
+    snapshot_path.write_text(
+        f"{json.dumps(compatible)}\n{json.dumps(incompatible)}\n",
+        encoding="utf-8",
+    )
+
+    report = DebtorReportService(ReportClient()).snapshot(
+        DebtSnapshotRequest(
+            snapshot_path=str(snapshot_path),
+            write_snapshot=False,
+        )
+    )
+
+    assert (
+        report["previous"],
+        report["delta"]["summary"]["debtDelta"],
+        next(row for row in report["delta"]["entrances"] if row["entrance"] == "1")[
+            "debtDelta"
+        ],
+    ) == (compatible, 1000.0, 500.0)
 
 
 def assert_structure_summary(report):

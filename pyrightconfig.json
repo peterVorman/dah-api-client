@@ -2,6 +2,8 @@
   "include": [
     "dah_api.py",
     "auth_session.py",
+    "cli_parser.py",
+    "debtor_data.py",
     "debtor_notifications.py",
     "debtor_reports.py",
     "main.py",

@@ -10,6 +10,8 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    env:
+      PYTHON_FILES: dah_api.py auth_session.py cli_parser.py debtor_data.py debtor_notifications.py debtor_reports.py main.py
 
     steps:
       - uses: actions/checkout@v4
@@ -26,7 +28,7 @@ jobs:
           python -m pip install -r requirements.txt
 
       - name: Compile
-        run: python -m py_compile dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py
+        run: python -m py_compile $PYTHON_FILES
 
       - name: Validate skill package
         run: python .codex/skills/dah-api-client/scripts/validate_skill.py .codex/skills/dah-api-client
@@ -39,17 +41,17 @@ jobs:
           python -m ruff check .
           python -m flake8
           python -m isort --check-only .
-          python -m pylint dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py tests
+          python -m pylint $PYTHON_FILES tests
           python -m pyright
-          python -m vulture dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py tests --min-confidence 100 --ignore-names cli_env
+          python -m vulture $PYTHON_FILES tests --min-confidence 100 --ignore-names cli_env
 
       - name: Security scan
         run: python -m bandit -q -r .
 
       - name: Complexity
         run: |
-          python -m radon cc -s -a dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py tests
-          bad_complexity="$(python -m radon cc -s -n B dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py tests)"
+          python -m radon cc -s -a $PYTHON_FILES tests
+          bad_complexity="$(python -m radon cc -s -n B $PYTHON_FILES tests)"
           if [ -n "$bad_complexity" ]; then
             echo "$bad_complexity"
             exit 1

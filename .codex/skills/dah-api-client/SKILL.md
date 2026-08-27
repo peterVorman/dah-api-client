@@ -24,11 +24,17 @@ authorized operation.
 ## Workflow
 
 1. Set the working directory to the repository root that contains `dah_api.py` and `main.py`.
-2. Inspect `dah_api.py` and `main.py` before changing behavior; preserve their public interfaces unless the user asks for a broader refactor.
+2. Inspect the relevant local modules before changing behavior; preserve public interfaces unless the user asks for a broader refactor.
 3. Prefer `DahApiClient` for Python work and `main.py` for quick command-line queries.
-4. Read `references/client-usage.md` when you need exact imports, function
-   descriptions, CLI examples, endpoint details, debtor workflow behavior, or
-   extension patterns.
+4. Read `references/client-usage.md` first for routing. Then read only the needed
+   detail reference:
+   - `references/configuration.md` for environment, auth, TLS, privacy, and
+     licensing guardrails.
+   - `references/workflows.md` for debtor, publication, feedback-order, ledger,
+     and bank reconciliation workflows.
+   - `references/endpoints.md` for functions, endpoint paths, payloads, and
+     extension patterns.
+   - `references/quality-gates.md` for validation commands.
 5. Keep bearer and refresh tokens out of final answers, logs, fixtures, screenshots, and committed test data. Require credentials from the environment or `.env.local`; do not pass tokens through CLI arguments.
 6. Do not provide DAH access, token acquisition help, account support, billing
    support, association support, or operational DAH troubleshooting; route those
@@ -39,7 +45,7 @@ authorized operation.
 For local code changes, run the narrowest useful check first:
 
 ```bash
-python3 -m py_compile dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py
+python3 -m py_compile dah_api.py auth_session.py cli_parser.py debtor_data.py debtor_notifications.py debtor_reports.py main.py
 python3 .codex/skills/dah-api-client/scripts/validate_skill.py .codex/skills/dah-api-client
 ```
 
@@ -49,18 +55,19 @@ Before finishing changes to `dah_api.py`, `main.py`, tests, or CLI behavior, run
 the project gates with the active Python environment:
 
 ```bash
-python -m py_compile dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py
+PYTHON_FILES="dah_api.py auth_session.py cli_parser.py debtor_data.py debtor_notifications.py debtor_reports.py main.py"
+python -m py_compile $PYTHON_FILES
 python .codex/skills/dah-api-client/scripts/validate_skill.py .codex/skills/dah-api-client
 python -m pytest
 python -m ruff check .
 python -m flake8
 python -m isort --check-only .
-python -m pylint dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py tests
+python -m pylint $PYTHON_FILES tests
 python -m pyright
-python -m vulture dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py tests --min-confidence 100 --ignore-names cli_env
+python -m vulture $PYTHON_FILES tests --min-confidence 100 --ignore-names cli_env
 python -m bandit -q -r .
-python -m radon cc -s -a dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py tests
-python -m radon cc -s -n B dah_api.py auth_session.py debtor_notifications.py debtor_reports.py main.py tests
+python -m radon cc -s -a $PYTHON_FILES tests
+python -m radon cc -s -n B $PYTHON_FILES tests
 ```
 
 Treat any output from the final `radon -n B` command as a failure: complexity
@@ -77,12 +84,13 @@ When adding a DAH endpoint:
    existing client helpers.
 3. Quote path ids with `urllib.parse.quote(..., safe="")`; use
    `get_default_association_id()` only for association-scoped endpoints.
-4. Add a CLI subcommand and handler in `main.py`; use existing payload loading
-   helpers and do not add token CLI args or hard-coded defaults.
+4. Add CLI arguments in `cli_parser.py` and command handling in `main.py`; use
+   existing payload loading helpers and do not add token CLI args or hard-coded
+   defaults.
 5. Add unit tests without live API calls for request construction, CLI args,
    default payloads, and error handling.
-6. Update `references/client-usage.md` with the Python import, CLI example,
-   client method, path, and default payload details.
+6. Update the relevant reference file with the Python import, CLI example, client
+   method, path, and default payload details.
 7. For write endpoints, add a dry-run or explicit confirmation guard.
 8. Run the Quality Gates.
 

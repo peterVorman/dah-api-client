@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import shlex
 
 import pytest
@@ -11,6 +12,7 @@ from dah_api import DahHttpError, DahRequestError
 class FakeClient:
     instances = []
     access_error = None
+    fail_access_once = False
     debt_response = None
     apartment_response = None
     money_response = None
@@ -28,16 +30,22 @@ class FakeClient:
     def get_access(self):
         if type(self).access_error:
             raise type(self).access_error
+        if type(self).fail_access_once:
+            type(self).fail_access_once = False
+            raise DahHttpError(
+                401, "Unauthorized", '{"message":"invalid_access_token"}'
+            )
         return self.record("access")
 
     def authentication_web_login(self, request):
         self.calls.append(("authentication-web-login", request))
-        return {"accessToken": "secret-access-token", "login": request.login}
+        return {"accessToken": "unit-access-token", "login": request.login}
 
     def authentication_relogin(self, request):
         self.calls.append(("authentication-relogin", request))
         return {
-            "refreshToken": "secret-refresh-token",
+            "accessToken": "refreshed-token",
+            "refreshToken": "unit-refresh-token",
             "deviceId": request.device_id,
         }
 
@@ -125,6 +133,7 @@ class PersonalGroupClient:
 def cli_env(monkeypatch, tmp_path):
     FakeClient.instances = []
     FakeClient.access_error = None
+    FakeClient.fail_access_once = False
     FakeClient.debt_response = None
     FakeClient.apartment_response = None
     FakeClient.money_response = None
@@ -135,7 +144,6 @@ def cli_env(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "load_env_file", lambda: None)
     monkeypatch.setenv("DAH_BEARER_TOKEN", "unit-token")
     monkeypatch.delenv("DAH_ASSOCIATION_ID", raising=False)
-    monkeypatch.delenv("DAH_MESSENGER_GROUP_ID", raising=False)
     monkeypatch.delenv("DAH_REFRESH_TOKEN", raising=False)
     monkeypatch.delenv("DAH_LOGIN", raising=False)
     monkeypatch.delenv("DAH_PASSWORD", raising=False)
@@ -267,6 +275,7 @@ CASES = [
         ),
         {
             "response": {
+                "accessToken": "<redacted>",
                 "deviceId": "device",
                 "refreshToken": "<redacted>",
             }
@@ -508,6 +517,66 @@ def test_cli_reports_client_errors(cli_env, capsys, error, expected):
     assert status == 1
     assert expected in streams.err
     assert FakeClient.instances[-1].calls == []
+
+
+def test_cli_retries_read_only_after_invalid_token(cli_env, capsys, monkeypatch):
+    monkeypatch.setenv("DAH_BEARER_TOKEN", "expired-token")
+    monkeypatch.setenv("DAH_REFRESH_TOKEN", "refresh-token")
+    monkeypatch.setattr(
+        cli,
+        "save_auth_env",
+        lambda response: {"path": ".env.local", "keys": sorted(response)},
+    )
+    FakeClient.fail_access_once = True
+
+    status, response, _, _ = run_cli(["access"], capsys)
+
+    assert (
+        status,
+        response,
+        [client.config.token for client in FakeClient.instances],
+        os.environ["DAH_BEARER_TOKEN"],
+    ) == (
+        0,
+        {"method": "access"},
+        ["expired-token", "", "refreshed-token"],
+        "refreshed-token",
+    )
+
+
+def test_cli_retry_auth_falls_back_to_login(cli_env, monkeypatch):
+    class LoginClient:
+        def authentication_relogin(self, request):
+            raise DahHttpError(401, "Unauthorized", "expired")
+
+        def authentication_web_login(self, request):
+            return {"accessToken": "login-token", "login": request.login}
+
+    monkeypatch.setenv("DAH_REFRESH_TOKEN", "bad-refresh")
+    monkeypatch.setenv("DAH_LOGIN", "login")
+    monkeypatch.setenv("DAH_PASSWORD", "password")
+
+    assert cli.DahCli._refresh_auth_response(LoginClient()) == {
+        "accessToken": "login-token",
+        "login": "login",
+    }
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        (argparse.Namespace(command="access"), True),
+        (argparse.Namespace(command="publication-save", dry_run=True), True),
+        (argparse.Namespace(command="publication-save", dry_run=False), False),
+        (argparse.Namespace(command="debtors-notify", send=False), True),
+        (argparse.Namespace(command="debtors-notify", send=True), False),
+        (argparse.Namespace(command="tenant-notification-send", send=False), True),
+        (argparse.Namespace(command="messenger-send-message", dry_run=True), True),
+        (argparse.Namespace(command="feedback-order-status", dry_run=False), False),
+    ],
+)
+def test_command_is_read_only(args, expected):
+    assert cli.command_is_read_only(args) is expected
 
 
 def test_cli_without_token_commands(monkeypatch, tmp_path):
@@ -996,7 +1065,7 @@ def test_cli_auth_save_env_local(cli_env, capsys, monkeypatch, tmp_path):
         "<redacted>",
         "<redacted>",
         {"path": ".env.local", "keys": ["DAH_BEARER_TOKEN"]},
-        "DAH_BEARER_TOKEN=secret-access-token\n",
+        "DAH_BEARER_TOKEN=unit-access-token\n",
     )
 
 

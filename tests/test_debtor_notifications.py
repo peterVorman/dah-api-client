@@ -5,6 +5,16 @@ from dah_api import (
     MessengerMessageRequest,
     TenantNotificationRequest,
 )
+from debtor_data import (
+    apartment_kind,
+    apartment_number,
+    apartment_pages_finished,
+    debtor_from,
+    first_list_value,
+    format_money,
+    rows_from,
+    short_apartment_label,
+)
 from debtor_notifications import (
     DebtorNotificationRequest,
     DebtorNotificationService,
@@ -12,15 +22,9 @@ from debtor_notifications import (
     active_owner_tenant_ids,
     active_owner_user_ids,
     active_owner_users,
-    apartment_kind,
-    apartment_number,
-    apartment_pages_finished,
-    debtor_from,
     debtor_notification_table,
     debtor_notification_text,
-    first_list_value,
     format_debtor_notification_report,
-    format_money,
     ledger_record,
     message_apartment_label,
     missing_confirmations,
@@ -29,8 +33,6 @@ from debtor_notifications import (
     record_debt,
     record_notification_method,
     record_recipient_scope,
-    rows_from,
-    short_apartment_label,
     today_iso,
     validate_personal_group,
 )

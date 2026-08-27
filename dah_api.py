@@ -453,8 +453,7 @@ class DahApiClient:
         return self.request_json(
             method="POST",
             path=(
-                f"/communication/v1/client/notification/{association_id}"
-                "/tenant/send"
+                f"/communication/v1/client/notification/{association_id}/tenant/send"
             ),
             payload=request.to_payload(),
             tab_id=tab_id,
