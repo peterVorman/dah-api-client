@@ -70,6 +70,13 @@ class FakeClient:
             return type(self).debt_response
         return self.record("bill-debt-analytics", request)
 
+    def get_bill_reconciliation(self, request):
+        return self.record("bill-reconciliation", request)
+
+    def download_bill_reconciliation(self, request):
+        self.calls.append(("bill-reconciliation-download", request))
+        return b"report"
+
     def list_feedback_orders(self, request):
         return self.record("feedback-order-list", request)
 
@@ -346,6 +353,24 @@ CASES = [
     ),
     single(
         args(
+            "bill-reconciliation --apartment-id apartment-id "
+            "--from-date 2026-07-01T00:00:00 --to-date 2026-07-31T23:59:59 "
+            "--flow-item-details"
+        ),
+        {"method": "bill-reconciliation"},
+        "bill-reconciliation",
+        ("apartment_id", "payload"),
+        {
+            "apartment_id": "apartment-id",
+            "payload": {
+                "from": "2026-07-01T00:00:00",
+                "to": "2026-07-31T23:59:59",
+                "flowItemDetails": True,
+            },
+        },
+    ),
+    single(
+        args(
             'feedback-order-list --association-id assoc-id --body \'{"status":"OPEN"}\''
         ),
         {"method": "feedback-order-list"},
@@ -503,6 +528,86 @@ def test_cli_commands(cli_env, capsys, monkeypatch, case):
     }
 
 
+def test_cli_bill_reconciliation_resolves_apartment_number(cli_env, capsys):
+    FakeClient.apartment_response = {
+        "content": [
+            {"id": "resolved-id", "number": "55", "type": {"type": "APARTMENT"}}
+        ],
+        "last": True,
+    }
+    status, response, _, client = run_cli(
+        args(
+            "bill-reconciliation --apartment-number 55 "
+            "--from-date 2026-07-01T00:00:00 --to-date 2026-07-31T23:59:59"
+        ),
+        capsys,
+    )
+
+    assert (
+        status,
+        response,
+        [name for name, _ in client.calls],
+        client.calls[-1][1].apartment_id,
+    ) == (
+        0,
+        {"method": "bill-reconciliation"},
+        ["apartment-list", "bill-reconciliation"],
+        "resolved-id",
+    )
+
+
+def test_cli_bill_reconciliation_download_writes_file(cli_env, capsys, tmp_path):
+    output = tmp_path / "act.pdf"
+    status, response, _, client = run_cli(
+        args(
+            "bill-reconciliation-download --apartment-id apartment-id "
+            "--from-date 2026-07-01T00:00:00 --to-date 2026-07-31T23:59:59 "
+            f"--output {output}"
+        ),
+        capsys,
+    )
+
+    assert (
+        status,
+        response,
+        output.read_bytes(),
+        last_call(client)[0],
+        last_call(client)[1].as_pdf,
+    ) == (
+        0,
+        {"output": str(output), "bytes": 6, "asPdf": True},
+        b"report",
+        "bill-reconciliation-download",
+        True,
+    )
+
+
+def test_cli_bill_reconciliation_guards(cli_env):
+    with pytest.raises(SystemExit, match="Missing reconciliation period"):
+        cli.DahCli().run(args("bill-reconciliation --apartment-id apartment-id"))
+
+    FakeClient.apartment_response = {"content": [], "last": True}
+    with pytest.raises(SystemExit, match="not found"):
+        cli.DahCli().run(
+            args(
+                "bill-reconciliation --apartment-number 55 "
+                "--from-date 2026-07-01T00:00:00 --to-date 2026-07-31T23:59:59"
+            )
+        )
+
+    FakeClient.apartment_response = {
+        "content": [{"number": "55", "type": {"type": "APARTMENT"}}],
+        "last": True,
+    }
+    with pytest.raises(SystemExit, match="no usable DAH id"):
+        cli.DahCli().run(
+            args(
+                "bill-reconciliation --apartment-number 55 "
+                "--from-date 2026-07-01T00:00:00 --to-date 2026-07-31T23:59:59"
+            )
+        )
+
+
 @pytest.mark.parametrize(
     ("error", "expected"),
     [
@@ -566,6 +671,8 @@ def test_cli_retry_auth_falls_back_to_login(cli_env, monkeypatch):
     ("args", "expected"),
     [
         (argparse.Namespace(command="access"), True),
+        (argparse.Namespace(command="bill-reconciliation"), True),
+        (argparse.Namespace(command="bill-reconciliation-download"), True),
         (argparse.Namespace(command="publication-save", dry_run=True), True),
         (argparse.Namespace(command="publication-save", dry_run=False), False),
         (argparse.Namespace(command="debtors-notify", send=False), True),

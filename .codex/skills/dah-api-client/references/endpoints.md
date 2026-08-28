@@ -21,6 +21,10 @@
   `PUT /publications/v2/edit/web`.
 - `DahApiClient.get_bill_debt_analytics()`:
   `POST /accounting/v1/report/bill/<associationId>/debt/analytics`.
+- `DahApiClient.get_bill_reconciliation()`:
+  `POST /accounting/v1/report/bill/<apartmentId>/reconciliation`.
+- `DahApiClient.download_bill_reconciliation()`:
+  `POST /accounting/v1/report/bill/<apartmentId>/reconciliation/download`.
 - `DahApiClient.list_feedback_orders()`:
   `POST /feedback/order/list/<associationId>`.
 - `DahApiClient.update_feedback_order_status()`:
@@ -82,6 +86,16 @@ Bill debt analytics:
 }
 ```
 
+Bill reconciliation:
+
+```json
+{
+  "from": "<--from-date>",
+  "to": "<--to-date>",
+  "flowItemDetails": false
+}
+```
+
 Tenant notification:
 
 ```json
@@ -129,7 +143,8 @@ Feedback order status:
 
 1. Add endpoint-specific request data as a small dataclass in `dah_api.py` when
    query params, path params, or payload shape matter.
-2. Add a `DahApiClient` method that delegates to `request_json`.
+2. Add a `DahApiClient` method that delegates to `request_json`, or
+   `request_bytes` for binary downloads.
 3. Quote path ids with `urllib.parse.quote(..., safe="")`.
 4. Add CLI arguments in `cli_parser.py` using existing parser helpers.
 5. Add command dispatch and request construction in `main.py`.

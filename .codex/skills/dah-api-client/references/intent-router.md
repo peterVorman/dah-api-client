@@ -9,6 +9,7 @@ Use this table before choosing a command or reference file.
 | Top debtors or next notification queue | `workflows.md`, `safety-decision-table.md` | `debtors-next` |
 | Notify debtors | `write-operation-protocol.md`, `safety-decision-table.md` | `debtors-notify` |
 | One apartment or premise audit | `workflows.md`, `output-templates.md` | `debtor-audit` |
+| Apartment or premise reconciliation act | `endpoints.md`, `safety-decision-table.md` | `bill-reconciliation` or `bill-reconciliation-download` |
 | Entrance/floor debt load | `workflows.md`, `output-templates.md` | `debtors-by-entrance --area-adjusted` |
 | Non-residential debt | `workflows.md`, `output-templates.md` | `debtors-next --kind premise` or `debtors-by-entrance --kind premise` |
 | DAH publication | `write-operation-protocol.md`, `endpoints.md` | `publication-save --dry-run` first |

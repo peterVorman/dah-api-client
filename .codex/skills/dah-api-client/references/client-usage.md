@@ -47,6 +47,8 @@ python3 main.py publications-search --page 0 --size 5
 python3 main.py publication-get '<publication id>'
 python3 main.py publication-save --body-file publication.json --dry-run
 python3 main.py bill-debt-analytics --debt-filter-accruals 1
+python3 main.py bill-reconciliation --apartment-number 55 --from-date YYYY-MM-DDT00:00:00 --to-date YYYY-MM-DDT23:59:59
+python3 main.py bill-reconciliation-download --apartment-number 55 --from-date YYYY-MM-DDT00:00:00 --to-date YYYY-MM-DDT23:59:59 --output act.pdf
 python3 main.py debtors-next --notification-method auto --limit 15
 python3 main.py debtors-notify --apartment-number 55
 python3 main.py debtors-notify --apartment-number 55 --send --confirm 55
@@ -76,12 +78,18 @@ Common flags:
 ## Python Quick Start
 
 ```python
-from dah_api import DahApiClient, DahApiConfig, BillDebtAnalyticsRequest
+from dah_api import BillDebtAnalyticsRequest, BillReconciliationRequest, DahApiClient, DahApiConfig
 from debtor_notifications import DebtorNotificationRequest, DebtorNotificationService
 from debtor_reports import DebtorReportService, DebtSnapshotRequest
 
 client = DahApiClient(DahApiConfig.from_env())
 debt = client.get_bill_debt_analytics(BillDebtAnalyticsRequest())
+act = client.get_bill_reconciliation(
+    BillReconciliationRequest(
+        apartment_id="<apartment id>",
+        payload={"from": "YYYY-MM-DDT00:00:00", "to": "YYYY-MM-DDT23:59:59"},
+    )
+)
 queue = DebtorNotificationService(client).run(DebtorNotificationRequest(limit=10))
 snapshot = DebtorReportService(client).snapshot(DebtSnapshotRequest(write_snapshot=True))
 ```

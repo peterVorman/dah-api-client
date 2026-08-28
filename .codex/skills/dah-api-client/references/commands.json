@@ -73,6 +73,22 @@
       "references": ["workflows.md", "endpoints.md"]
     },
     {
+      "name": "bill-reconciliation",
+      "mode": "read-sensitive",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["endpoints.md", "safety-decision-table.md"]
+    },
+    {
+      "name": "bill-reconciliation-download",
+      "mode": "read-sensitive",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["endpoints.md", "safety-decision-table.md"]
+    },
+    {
       "name": "debtors-next",
       "mode": "read",
       "requiresEnv": ["DAH_BEARER_TOKEN"],

@@ -284,3 +284,4 @@ cython_debug/
 # DAH local operational logs
 .dah-notifications.jsonl
 .dah-debt-snapshots.jsonl
+local_exports/

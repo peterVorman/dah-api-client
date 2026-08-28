@@ -39,6 +39,10 @@ class RecordingClient(dah_api.DahApiClient):
             return self.access
         return {}
 
+    def request_bytes(self, **kwargs):
+        self.calls.append(kwargs)
+        return b"report"
+
 
 def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
     env_file = tmp_path / ".env.local"
@@ -221,6 +225,19 @@ def test_endpoint_requests():
         dah_api.BillDebtAnalyticsRequest(payload={"debt": True}),
         tab_id="tab",
     )
+    client.get_bill_reconciliation(
+        dah_api.BillReconciliationRequest(
+            "reconciliation/id",
+            {"from": "2026-07-01T00:00:00", "to": "2026-07-31T23:59:59"},
+        )
+    )
+    client.download_bill_reconciliation(
+        dah_api.BillReconciliationDownloadRequest(
+            "reconciliation/id",
+            {"from": "2026-07-01T00:00:00", "to": "2026-07-31T23:59:59"},
+            as_pdf=False,
+        )
+    )
     client.list_feedback_orders(
         dah_api.FeedbackOrderListRequest("feedback/id", {"feedback": True})
     )
@@ -269,6 +286,8 @@ def test_endpoint_requests():
         "/publications/v2/add/web",
         "/publications/v2/edit/web",
         "/accounting/v1/report/bill/assoc%2Fid/debt/analytics",
+        "/accounting/v1/report/bill/reconciliation%2Fid/reconciliation",
+        "/accounting/v1/report/bill/reconciliation%2Fid/reconciliation/download",
         "/feedback/order/list/feedback%2Fid",
         "/feedback/order/comment/order%2Fid",
         "/communication/v1/client/notification/tenant%2Fassoc/tenant/send",
@@ -290,12 +309,14 @@ def test_endpoint_requests():
         client.calls[7]["payload"],
         client.calls[8]["payload"],
         client.calls[8]["tab_id"],
-        client.calls[10]["payload"],
-        client.calls[11]["payload"],
-        client.calls[12]["query"],
-        client.calls[13]["query"],
-        client.calls[16]["method"],
-        client.calls[17]["payload"],
+        client.calls[9]["payload"],
+        client.calls[10]["query"],
+        client.calls[12]["payload"],
+        client.calls[13]["payload"],
+        client.calls[14]["query"],
+        client.calls[15]["query"],
+        client.calls[18]["method"],
+        client.calls[19]["payload"],
     ) == (
         {
             "clientId": "DAH_CLIENT_WEB",
@@ -316,6 +337,8 @@ def test_endpoint_requests():
         {"associationId": "assoc-id", "id": "publication-id", "title": "Edited"},
         {"debt": True},
         "tab",
+        {"from": "2026-07-01T00:00:00", "to": "2026-07-31T23:59:59"},
+        {"asPdf": "false"},
         {"status": "DONE"},
         {
             "details": [
@@ -382,6 +405,16 @@ def test_request_json_success(monkeypatch):
     )
 
 
+def test_request_bytes_success(monkeypatch):
+    client = dah_api.DahApiClient(config())
+    monkeypatch.setattr(
+        dah_api.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: Response(b"file"),
+    )
+    assert client.request_bytes(method="GET", path="/file") == b"file"
+
+
 def test_build_request_without_body():
     plain = dah_api.DahApiClient(config())._build_request(
         method="GET",
@@ -433,6 +466,8 @@ def test_request_json_errors(monkeypatch):
         "Teapot",
         '{"error": true}',
     )
+    with pytest.raises(dah_api.DahHttpError, match="HTTP 418 Teapot"):
+        client.request_bytes(method="GET", path="/broken")
 
     def url_error(request, timeout, context):
         raise urllib.error.URLError("offline")
@@ -440,3 +475,5 @@ def test_request_json_errors(monkeypatch):
     monkeypatch.setattr(dah_api.urllib.request, "urlopen", url_error)
     with pytest.raises(dah_api.DahRequestError, match="Request failed"):
         client.request_json(method="GET", path="/offline")
+    with pytest.raises(dah_api.DahRequestError, match="Request failed"):
+        client.request_bytes(method="GET", path="/offline")

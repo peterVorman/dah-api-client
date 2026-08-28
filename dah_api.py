@@ -181,6 +181,19 @@ class BillDebtAnalyticsRequest:
 
 
 @dataclass(slots=True)
+class BillReconciliationRequest:
+    apartment_id: str
+    payload: dict[str, Any]
+
+
+@dataclass(slots=True)
+class BillReconciliationDownloadRequest:
+    apartment_id: str
+    payload: dict[str, Any]
+    as_pdf: bool = True
+
+
+@dataclass(slots=True)
 class FeedbackOrderListRequest:
     association_id: str | None = None
     payload: dict[str, Any] = field(default_factory=dict)
@@ -408,6 +421,35 @@ class DahApiClient:
             tab_id=tab_id,
         )
 
+    def get_bill_reconciliation(
+        self,
+        request: BillReconciliationRequest,
+        *,
+        tab_id: str | None = None,
+    ) -> Any:
+        apartment_id = urllib.parse.quote(request.apartment_id, safe="")
+        return self.request_json(
+            method="POST",
+            path=f"/accounting/v1/report/bill/{apartment_id}/reconciliation",
+            payload=request.payload,
+            tab_id=tab_id,
+        )
+
+    def download_bill_reconciliation(
+        self,
+        request: BillReconciliationDownloadRequest,
+        *,
+        tab_id: str | None = None,
+    ) -> bytes:
+        apartment_id = urllib.parse.quote(request.apartment_id, safe="")
+        return self.request_bytes(
+            method="POST",
+            path=f"/accounting/v1/report/bill/{apartment_id}/reconciliation/download",
+            query={"asPdf": str(request.as_pdf).lower()},
+            payload=request.payload,
+            tab_id=tab_id,
+        )
+
     def list_feedback_orders(
         self,
         request: FeedbackOrderListRequest | None = None,
@@ -615,6 +657,38 @@ class DahApiClient:
         except urllib.error.URLError as exc:
             raise DahRequestError(f"Request failed: {exc}") from exc
 
+    def request_bytes(
+        self,
+        *,
+        method: str,
+        path: str,
+        query: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
+        tab_id: str | None = None,
+    ) -> bytes:
+        request = self._build_request(
+            method=method,
+            path=path,
+            query=query,
+            payload=payload,
+            tab_id=tab_id,
+        )
+        try:
+            with urllib.request.urlopen(  # nosec B310
+                request,
+                timeout=self.config.timeout,
+                context=self.config.ssl_context,
+            ) as response:
+                return self._read_response_bytes(response)
+        except urllib.error.HTTPError as exc:
+            raise DahHttpError(
+                exc.code,
+                exc.reason,
+                self._read_response_text(exc),
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise DahRequestError(f"Request failed: {exc}") from exc
+
     def _build_request(
         self,
         *,
@@ -660,7 +734,10 @@ class DahApiClient:
         return headers
 
     def _read_response_text(self, response: Any) -> str:
+        return self._read_response_bytes(response).decode("utf-8")
+
+    def _read_response_bytes(self, response: Any) -> bytes:
         data = response.read()
         if response.headers.get("Content-Encoding", "").lower() == "gzip":
             data = gzip.decompress(data)
-        return data.decode("utf-8")
+        return data

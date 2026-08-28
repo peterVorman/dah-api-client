@@ -1,6 +1,6 @@
 ---
 name: dah-api-client
-description: Work with the DAH cabinet API through the local Python client in the current repository. Use when Codex needs to query DAH/Dah Online API data, call organization access, apartment list, web login, relogin, or exit authentication, search/get/create/edit publications, accounting bill debt analytics, debtor audit, aggregate debt snapshots, debtor notification workflow, feedback order list, tenant APP/EMAIL/SMS notification send, bank money transaction list, messenger groups page, messenger personal group get, messenger group messages, or send messenger message endpoints, inspect DAH API responses, create small API scripts, or extend the existing dah_api.py client and main.py CLI instead of writing a separate HTTP client.
+description: Work with the DAH cabinet API through the local Python client in the current repository. Use when Codex needs to query DAH/Dah Online API data, call organization access, apartment list, web login, relogin, or exit authentication, search/get/create/edit publications, accounting bill debt analytics, bill reconciliation report/download, debtor audit, aggregate debt snapshots, debtor notification workflow, feedback order list, tenant APP/EMAIL/SMS notification send, bank money transaction list, messenger groups page, messenger personal group get, messenger group messages, or send messenger message endpoints, inspect DAH API responses, create small API scripts, or extend the existing dah_api.py client and main.py CLI instead of writing a separate HTTP client.
 ---
 
 # DAH API Client
@@ -88,9 +88,9 @@ When adding a DAH endpoint:
 
 1. Add a small request dataclass in `dah_api.py` when query params, path params,
    or payload shape matter.
-2. Add a `DahApiClient` method that delegates to `request_json`; keep auth,
-   headers, JSON decoding, URL building, and association resolution in the
-   existing client helpers.
+2. Add a `DahApiClient` method that delegates to `request_json`, or
+   `request_bytes` for binary downloads; keep auth, headers, JSON decoding, URL
+   building, and association resolution in the existing client helpers.
 3. Quote path ids with `urllib.parse.quote(..., safe="")`; use
    `get_default_association_id()` only for association-scoped endpoints.
 4. Add CLI arguments in `cli_parser.py` and command handling in `main.py`; use

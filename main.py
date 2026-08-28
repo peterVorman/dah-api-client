@@ -9,6 +9,7 @@ import os
 import sys
 from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from auth_session import (
@@ -24,6 +25,8 @@ from dah_api import (
     AuthenticationReloginRequest,
     AuthenticationWebLoginRequest,
     BillDebtAnalyticsRequest,
+    BillReconciliationDownloadRequest,
+    BillReconciliationRequest,
     DahApiClient,
     DahApiConfig,
     DahHttpError,
@@ -73,6 +76,8 @@ READ_ONLY_COMMANDS = {
     "publications-search",
     "publication-get",
     "bill-debt-analytics",
+    "bill-reconciliation",
+    "bill-reconciliation-download",
     "debtors-by-entrance",
     "debtors-next",
     "debtor-audit",
@@ -200,6 +205,12 @@ class DahCli:
             "publication-save": lambda: self._save_or_preview_publication(args, client),
             "bill-debt-analytics": lambda: client.get_bill_debt_analytics(
                 self._build_bill_debt_analytics_request(args)
+            ),
+            "bill-reconciliation": lambda: client.get_bill_reconciliation(
+                self._build_bill_reconciliation_request(args, client)
+            ),
+            "bill-reconciliation-download": lambda: self._download_bill_reconciliation(
+                args, client
             ),
             "debtors-by-entrance": lambda: DebtorReportService(client).by_entrance(
                 self._build_debtor_structure_request(args)
@@ -435,6 +446,41 @@ class DahCli:
                 ),
             ),
         )
+
+    def _build_bill_reconciliation_request(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> BillReconciliationRequest:
+        return BillReconciliationRequest(
+            apartment_id=bill_reconciliation_apartment_id(args, client),
+            payload=load_reconciliation_payload(args),
+        )
+
+    def _build_bill_reconciliation_download_request(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> BillReconciliationDownloadRequest:
+        return BillReconciliationDownloadRequest(
+            apartment_id=bill_reconciliation_apartment_id(args, client),
+            payload=load_reconciliation_payload(args),
+            as_pdf=args.as_pdf,
+        )
+
+    def _download_bill_reconciliation(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> dict[str, Any]:
+        request = self._build_bill_reconciliation_download_request(args, client)
+        data = client.download_bill_reconciliation(request)
+        Path(args.output).write_bytes(data)
+        return {
+            "output": args.output,
+            "bytes": len(data),
+            "asPdf": request.as_pdf,
+        }
 
     def _build_feedback_order_list_request(
         self,
@@ -746,6 +792,48 @@ def debtor_request_kwargs(
     if include_limit:
         kwargs["limit"] = args.limit
     return kwargs
+
+
+def bill_reconciliation_apartment_id(
+    args: argparse.Namespace,
+    client: DahApiClient,
+) -> str:
+    if args.apartment_id:
+        return args.apartment_id
+
+    request = DebtorNotificationRequest(
+        association_id=args.association_id,
+        kind=args.kind,
+    )
+    apartment = (
+        DebtorNotificationService(client)
+        .apartment_index(request)
+        .get(f"{args.kind}:{args.apartment_number}")
+    )
+    if not apartment:
+        raise SystemExit(
+            f"Premise not found by exact {args.kind} number: {args.apartment_number}"
+        )
+    apartment_id = apartment.get("id")
+    if not isinstance(apartment_id, str) or not apartment_id:
+        raise SystemExit(f"Premise has no usable DAH id: {args.apartment_number}")
+    return apartment_id
+
+
+def load_reconciliation_payload(args: argparse.Namespace) -> dict[str, Any]:
+    payload = load_payload(
+        args,
+        {
+            "from": args.from_date,
+            "to": args.to_date,
+            "flowItemDetails": args.flow_item_details,
+        },
+    )
+    if not payload.get("from") or not payload.get("to"):
+        raise SystemExit(
+            "Missing reconciliation period. Pass --from-date and --to-date."
+        )
+    return payload
 
 
 def validate_tenant_notification_request(request: TenantNotificationRequest) -> None:

@@ -45,6 +45,7 @@ python3 -m venv .venv
 python -m pip install -r requirements.txt
 export DAH_BEARER_TOKEN="<your authorized token>"
 python main.py access
+python main.py bill-reconciliation --apartment-number 55 --from-date YYYY-MM-DDT00:00:00 --to-date YYYY-MM-DDT23:59:59
 ```
 
 For local configuration, prefer `.env.local` with plain `KEY=value` lines. That

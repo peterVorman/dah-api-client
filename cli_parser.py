@@ -176,6 +176,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_body_arguments(debt_analytics_parser)
 
+    reconciliation_parser = subparsers.add_parser(
+        "bill-reconciliation",
+        help="POST /accounting/v1/report/bill/{apartmentId}/reconciliation",
+        description="Fetch an apartment or premise bill reconciliation report.",
+    )
+    add_bill_reconciliation_arguments(reconciliation_parser)
+    add_body_arguments(reconciliation_parser)
+
+    reconciliation_download_parser = subparsers.add_parser(
+        "bill-reconciliation-download",
+        help="POST /accounting/v1/report/bill/{apartmentId}/reconciliation/download",
+        description="Download an apartment or premise bill reconciliation report.",
+    )
+    add_bill_reconciliation_arguments(reconciliation_download_parser)
+    reconciliation_download_parser.add_argument(
+        "--output",
+        required=True,
+        help="Output file path for the downloaded report.",
+    )
+    reconciliation_download_parser.add_argument(
+        "--as-pdf",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Request PDF output. Use --no-as-pdf for the default non-PDF export.",
+    )
+    add_body_arguments(reconciliation_download_parser)
+
     notify_parser = subparsers.add_parser(
         "debtors-notify",
         help="Notify debtors through DAH messenger or tenant notifications.",
@@ -583,6 +610,38 @@ def add_body_arguments(
     body_group.add_argument(
         "--body-file",
         help="Path to a JSON file containing the request body.",
+    )
+
+
+def add_bill_reconciliation_arguments(parser: argparse.ArgumentParser) -> None:
+    add_association_id_argument(parser)
+    apartment_group = parser.add_mutually_exclusive_group(required=True)
+    apartment_group.add_argument(
+        "--apartment-id",
+        help="DAH apartment/premise id path parameter.",
+    )
+    apartment_group.add_argument(
+        "--apartment-number",
+        help="Exact apartment or premise number to resolve through apartment-list.",
+    )
+    parser.add_argument(
+        "--kind",
+        choices=("apartment", "premise"),
+        default="apartment",
+        help="Number lookup kind. Defaults to apartment.",
+    )
+    parser.add_argument(
+        "--from-date",
+        help="Start date/time for the report body; example: 2026-07-01T00:00:00.",
+    )
+    parser.add_argument(
+        "--to-date",
+        help="End date/time for the report body; example: 2026-07-31T23:59:59.",
+    )
+    parser.add_argument(
+        "--flow-item-details",
+        action="store_true",
+        help="Set flowItemDetails=true in the default request body.",
     )
 
 
