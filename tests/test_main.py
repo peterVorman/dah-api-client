@@ -77,6 +77,15 @@ class FakeClient:
         self.calls.append(("bill-reconciliation-download", request))
         return b"report"
 
+    def upload_storage_file(self, request):
+        self.calls.append(("storage-upload", request))
+        return {
+            "link": "https://files.example/report.pdf",
+            "fileName": request.filename,
+            "size": len(request.data),
+            "documentType": "PDF",
+        }
+
     def list_feedback_orders(self, request):
         return self.record("feedback-order-list", request)
 
@@ -582,6 +591,67 @@ def test_cli_bill_reconciliation_download_writes_file(cli_env, capsys, tmp_path)
     )
 
 
+def test_cli_bill_reconciliation_send_preview_and_send(cli_env, capsys):
+    FakeClient.apartment_response = {
+        "content": [
+            {
+                "id": "apartment-id",
+                "number": "41",
+                "type": {"type": "APARTMENT"},
+                "owners": [
+                    {"user": {"userId": "owner-id", "userStatus": "ACTIVE"}},
+                ],
+            }
+        ],
+        "last": True,
+    }
+
+    command = (
+        "bill-reconciliation-send --apartment-number 41 "
+        "--from-date 2026-01-01T00:00:00 --to-date 2026-08-28T23:59:59 "
+        "--description 'Акт звірки за 2026 рік'"
+    )
+    status, response, _, client = run_cli(args(command), capsys)
+
+    assert (
+        status,
+        response["mode"],
+        response["apartment"],
+        response["recipients"],
+        response["unavailableRecipients"],
+        [name for name, _ in client.calls],
+    ) == (0, "dry-run", "41", 1, 0, ["apartment-list"])
+
+    status, response, _, client = run_cli(
+        args(f"{command} --send --confirm 41"),
+        capsys,
+    )
+    sent_payload = client.calls[-1][1].to_payload()
+
+    assert (
+        status,
+        response["mode"],
+        response["bytes"],
+        response["sent"],
+        [name for name, _ in client.calls],
+        sent_payload["type"],
+        json.loads(sent_payload["payload"])["Description"],
+    ) == (
+        0,
+        "send",
+        6,
+        [{"apartment": "41", "recipients": 1}],
+        [
+            "apartment-list",
+            "bill-reconciliation-download",
+            "storage-upload",
+            "messenger-send-message",
+        ],
+        "FILE",
+        "Акт звірки за 2026 рік",
+    )
+
+
 def test_cli_bill_reconciliation_guards(cli_env):
     with pytest.raises(SystemExit, match="Missing reconciliation period"):
         cli.DahCli().run(args("bill-reconciliation --apartment-id apartment-id"))
@@ -606,6 +676,92 @@ def test_cli_bill_reconciliation_guards(cli_env):
                 "--from-date 2026-07-01T00:00:00 --to-date 2026-07-31T23:59:59"
             )
         )
+
+    with pytest.raises(SystemExit, match="requires --apartment-number"):
+        cli.DahCli().run(
+            args(
+                "bill-reconciliation-send --apartment-id apartment-id "
+                "--from-date 2026-07-01T00:00:00 --to-date 2026-07-31T23:59:59"
+            )
+        )
+
+    FakeClient.apartment_response = {
+        "content": [
+            {
+                "id": "apartment-id",
+                "number": "41",
+                "type": {"type": "APARTMENT"},
+                "owners": [
+                    {"user": {"userId": "owner-id", "userStatus": "ACTIVE"}},
+                ],
+            }
+        ],
+        "last": True,
+    }
+    with pytest.raises(SystemExit, match="Missing --confirm"):
+        cli.DahCli().run(
+            args(
+                "bill-reconciliation-send --apartment-number 41 "
+                "--from-date 2026-01-01T00:00:00 "
+                "--to-date 2026-08-28T23:59:59 --send"
+            )
+        )
+
+    FakeClient.apartment_response = {
+        "content": [
+            {"id": "apartment-id", "number": "41", "type": {"type": "APARTMENT"}}
+        ],
+        "last": True,
+    }
+    with pytest.raises(SystemExit, match="No active messenger recipients"):
+        cli.DahCli().run(
+            args(
+                "bill-reconciliation-send --apartment-number 41 "
+                "--from-date 2026-01-01T00:00:00 "
+                "--to-date 2026-08-28T23:59:59"
+            )
+        )
+
+
+def test_bill_reconciliation_helpers():
+    namespace = argparse.Namespace(
+        apartment_id="apartment-id",
+        apartment_number="41",
+        file_name="custom.pdf",
+        as_pdf=True,
+    )
+
+    assert cli.bill_reconciliation_apartment(namespace, None) == {
+        "id": "apartment-id",
+        "number": "41",
+    }
+    assert cli.bill_reconciliation_file_name(namespace, {"from": "2026-01-01"}) == (
+        "custom.pdf"
+    )
+    assert cli.bill_reconciliation_file_name(
+        argparse.Namespace(apartment_number="41", file_name=None, as_pdf=False),
+        {"from": "2026-01-01"},
+    ) == "dah-reconciliation-41-2026-01-01.xlsx"
+
+    with pytest.raises(DahRequestError, match="Storage upload"):
+        cli.messenger_file_payload({}, "act.pdf", 1, "")
+
+
+def test_resolvable_personal_groups_skips_invalid_interlocutor():
+    class Client:
+        def get_messenger_personal_group(self, request):
+            if request.interlocutor_id == "invalid":
+                raise DahHttpError(400, "Bad Request", "invalid_interlocutor_id")
+            return {
+                "id": "personal-group-id",
+                "interlocutorId": request.interlocutor_id,
+                "type": "PERSONAL",
+                "canWriteMessage": True,
+            }
+
+    assert cli.resolvable_personal_groups(Client(), ["invalid", "valid"]) == [
+        "personal-group-id"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -673,6 +829,8 @@ def test_cli_retry_auth_falls_back_to_login(cli_env, monkeypatch):
         (argparse.Namespace(command="access"), True),
         (argparse.Namespace(command="bill-reconciliation"), True),
         (argparse.Namespace(command="bill-reconciliation-download"), True),
+        (argparse.Namespace(command="bill-reconciliation-send", send=False), True),
+        (argparse.Namespace(command="bill-reconciliation-send", send=True), False),
         (argparse.Namespace(command="publication-save", dry_run=True), True),
         (argparse.Namespace(command="publication-save", dry_run=False), False),
         (argparse.Namespace(command="debtors-notify", send=False), True),

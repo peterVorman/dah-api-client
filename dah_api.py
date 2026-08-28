@@ -11,6 +11,7 @@ import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from time import time
@@ -194,6 +195,14 @@ class BillReconciliationDownloadRequest:
 
 
 @dataclass(slots=True)
+class StorageUploadRequest:
+    filename: str
+    data: bytes
+    content_type: str = "application/octet-stream"
+    public: bool = True
+
+
+@dataclass(slots=True)
 class FeedbackOrderListRequest:
     association_id: str | None = None
     payload: dict[str, Any] = field(default_factory=dict)
@@ -299,6 +308,19 @@ class DahHttpError(RuntimeError):
         self.status_code = status_code
         self.reason = reason
         self.body = body
+
+
+def storage_document_type(filename: str) -> str:
+    name = filename.lower()
+    if name.endswith(
+        ("webp", "tif", "tiff", "svg", "jpeg", "jpg", "ico", "bmp", "gif", "avif", "png")
+    ):
+        return "IMG"
+    if name.endswith(("doc", "docx")):
+        return "DOC"
+    if name.endswith(("xls", "xlsx")):
+        return "EXCEL"
+    return "PDF" if name.endswith("pdf") else "OTHER"
 
 
 class DahApiClient:
@@ -447,6 +469,31 @@ class DahApiClient:
             path=f"/accounting/v1/report/bill/{apartment_id}/reconciliation/download",
             query={"asPdf": str(request.as_pdf).lower()},
             payload=request.payload,
+            tab_id=tab_id,
+        )
+
+    def upload_storage_file(
+        self,
+        request: StorageUploadRequest,
+        *,
+        tab_id: str | None = None,
+    ) -> Any:
+        boundary = f"----DahFormBoundary{uuid.uuid4().hex}"
+        data = multipart_file_body(
+            "file",
+            request.filename,
+            request.data,
+            request.content_type,
+            boundary,
+        )
+        path = "/organization/v1/storage/upload/public" if request.public else (
+            "/organization/v1/storage/upload"
+        )
+        return self.request_json_data(
+            method="POST",
+            path=path,
+            data=data,
+            content_type=f"multipart/form-data; boundary={boundary}",
             tab_id=tab_id,
         )
 
@@ -689,6 +736,42 @@ class DahApiClient:
         except urllib.error.URLError as exc:
             raise DahRequestError(f"Request failed: {exc}") from exc
 
+    def request_json_data(
+        self,
+        *,
+        method: str,
+        path: str,
+        query: dict[str, Any] | None = None,
+        data: bytes | None = None,
+        content_type: str | None = None,
+        tab_id: str | None = None,
+    ) -> Any:
+        request = self._build_request(
+            method=method,
+            path=path,
+            query=query,
+            payload=None,
+            data=data,
+            content_type=content_type,
+            tab_id=tab_id,
+        )
+        try:
+            with urllib.request.urlopen(  # nosec B310
+                request,
+                timeout=self.config.timeout,
+                context=self.config.ssl_context,
+            ) as response:
+                text = self._read_response_text(response)
+                return json.loads(text) if text.strip() else {}
+        except urllib.error.HTTPError as exc:
+            raise DahHttpError(
+                exc.code,
+                exc.reason,
+                self._read_response_text(exc),
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise DahRequestError(f"Request failed: {exc}") from exc
+
     def _build_request(
         self,
         *,
@@ -696,27 +779,29 @@ class DahApiClient:
         path: str,
         query: dict[str, Any] | None,
         payload: dict[str, Any] | None,
-        tab_id: str | None,
+        data: bytes | None = None,
+        content_type: str | None = None,
+        tab_id: str | None = None,
     ) -> urllib.request.Request:
+        if payload is not None and data is not None:
+            raise ValueError("Pass either JSON payload or raw data, not both.")
         url = f"{self.config.base_url.rstrip('/')}{path}"
         if query:
             url = f"{url}?{urllib.parse.urlencode(query)}"
 
-        data = None
         if payload is not None:
             data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+            content_type = "application/json"
 
         return urllib.request.Request(
             url=url,
             data=data,
-            headers=self._build_headers(
-                has_json_body=payload is not None, tab_id=tab_id
-            ),
+            headers=self._build_headers(content_type=content_type, tab_id=tab_id),
             method=method,
         )
 
     def _build_headers(
-        self, *, has_json_body: bool, tab_id: str | None
+        self, *, content_type: str | None, tab_id: str | None
     ) -> dict[str, str]:
         headers = {
             "Accept": "application/json, text/plain, */*",
@@ -729,8 +814,8 @@ class DahApiClient:
         effective_tab_id = tab_id if tab_id is not None else self.config.tab_id
         if effective_tab_id:
             headers["X-DAH-TabId"] = effective_tab_id
-        if has_json_body:
-            headers["Content-Type"] = "application/json"
+        if content_type:
+            headers["Content-Type"] = content_type
         return headers
 
     def _read_response_text(self, response: Any) -> str:
@@ -741,3 +826,19 @@ class DahApiClient:
         if response.headers.get("Content-Encoding", "").lower() == "gzip":
             data = gzip.decompress(data)
         return data
+
+
+def multipart_file_body(
+    field_name: str,
+    filename: str,
+    data: bytes,
+    content_type: str,
+    boundary: str,
+) -> bytes:
+    header = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'
+        f"Content-Type: {content_type}\r\n\r\n"
+    ).encode("utf-8")
+    footer = f"\r\n--{boundary}--\r\n".encode("utf-8")
+    return header + data + footer

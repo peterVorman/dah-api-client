@@ -25,6 +25,9 @@
   `POST /accounting/v1/report/bill/<apartmentId>/reconciliation`.
 - `DahApiClient.download_bill_reconciliation()`:
   `POST /accounting/v1/report/bill/<apartmentId>/reconciliation/download`.
+- `DahApiClient.upload_storage_file()`:
+  `POST /organization/v1/storage/upload/public` for public messenger files, or
+  `POST /organization/v1/storage/upload` for regular storage files.
 - `DahApiClient.list_feedback_orders()`:
   `POST /feedback/order/list/<associationId>`.
 - `DahApiClient.update_feedback_order_status()`:
@@ -121,6 +124,21 @@ Messenger message:
   "type": "TEXT"
 }
 ```
+
+Messenger file message:
+
+```json
+{
+  "createTime": "<epoch milliseconds>",
+  "groupId": "<personal messenger group id>",
+  "payload": "{\"Link\":\"<uploaded file link>\",\"Name\":\"act.pdf\",\"Size\":123,\"Type\":\"PDF\"}",
+  "type": "FILE"
+}
+```
+
+Use `bill-reconciliation-send` to download a reconciliation report, upload it to
+public DAH storage, and send the resulting `FILE` message to apartment or
+premise recipients. Preview first; send only with `--send --confirm <number>`.
 
 Money transaction bank list:
 

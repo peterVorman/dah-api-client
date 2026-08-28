@@ -89,6 +89,14 @@
       "references": ["endpoints.md", "safety-decision-table.md"]
     },
     {
+      "name": "bill-reconciliation-send",
+      "mode": "write",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": true,
+      "requiresApproval": true,
+      "references": ["endpoints.md", "write-operation-protocol.md", "safety-decision-table.md"]
+    },
+    {
       "name": "debtors-next",
       "mode": "read",
       "requiresEnv": ["DAH_BEARER_TOKEN"],

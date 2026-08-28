@@ -43,6 +43,10 @@ class RecordingClient(dah_api.DahApiClient):
         self.calls.append(kwargs)
         return b"report"
 
+    def request_json_data(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"link": "https://files.example/report.pdf"}
+
 
 def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
     env_file = tmp_path / ".env.local"
@@ -101,6 +105,7 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
         dah_api.MessengerGroupsPageRequest().payload,
         dah_api.MessengerPersonalGroupRequest("user-id").interlocutor_id,
         dah_api.MoneyTransactionBankListRequest().payload,
+        dah_api.StorageUploadRequest("file.pdf", b"data").public,
         dah_api.PublicationSaveRequest({"title": "Hi"}).to_payload("assoc-id"),
         dah_api.PublicationSaveRequest({"associationId": "explicit"}).to_payload(
             "assoc-id"
@@ -150,6 +155,7 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
         {},
         "user-id",
         {"direction": "EXPENSE"},
+        True,
         {"associationId": "assoc-id", "title": "Hi"},
         {"associationId": "explicit"},
         {
@@ -238,6 +244,9 @@ def test_endpoint_requests():
             as_pdf=False,
         )
     )
+    client.upload_storage_file(
+        dah_api.StorageUploadRequest("report.pdf", b"%PDF", "application/pdf")
+    )
     client.list_feedback_orders(
         dah_api.FeedbackOrderListRequest("feedback/id", {"feedback": True})
     )
@@ -288,6 +297,7 @@ def test_endpoint_requests():
         "/accounting/v1/report/bill/assoc%2Fid/debt/analytics",
         "/accounting/v1/report/bill/reconciliation%2Fid/reconciliation",
         "/accounting/v1/report/bill/reconciliation%2Fid/reconciliation/download",
+        "/organization/v1/storage/upload/public",
         "/feedback/order/list/feedback%2Fid",
         "/feedback/order/comment/order%2Fid",
         "/communication/v1/client/notification/tenant%2Fassoc/tenant/send",
@@ -311,12 +321,19 @@ def test_endpoint_requests():
         client.calls[8]["tab_id"],
         client.calls[9]["payload"],
         client.calls[10]["query"],
-        client.calls[12]["payload"],
+        client.calls[11]["method"],
+        client.calls[11]["content_type"].startswith("multipart/form-data; boundary="),
+        dah_api.storage_document_type("report.pdf"),
+        dah_api.storage_document_type("report.docx"),
+        dah_api.storage_document_type("report.xlsx"),
+        dah_api.storage_document_type("report.png"),
+        dah_api.storage_document_type("report.bin"),
         client.calls[13]["payload"],
-        client.calls[14]["query"],
+        client.calls[14]["payload"],
         client.calls[15]["query"],
-        client.calls[18]["method"],
-        client.calls[19]["payload"],
+        client.calls[16]["query"],
+        client.calls[19]["method"],
+        client.calls[20]["payload"],
     ) == (
         {
             "clientId": "DAH_CLIENT_WEB",
@@ -339,6 +356,13 @@ def test_endpoint_requests():
         "tab",
         {"from": "2026-07-01T00:00:00", "to": "2026-07-31T23:59:59"},
         {"asPdf": "false"},
+        "POST",
+        True,
+        "PDF",
+        "DOC",
+        "EXCEL",
+        "IMG",
+        "OTHER",
         {"status": "DONE"},
         {
             "details": [
@@ -415,6 +439,68 @@ def test_request_bytes_success(monkeypatch):
     assert client.request_bytes(method="GET", path="/file") == b"file"
 
 
+def test_request_json_data_success(monkeypatch):
+    client = dah_api.DahApiClient(config())
+    seen = []
+
+    def success(request, *_args, **_kwargs):
+        seen.append(request)
+        return Response(b'{"uploaded": true}')
+
+    monkeypatch.setattr(dah_api.urllib.request, "urlopen", success)
+    assert client.request_json_data(
+        method="POST",
+        path="/upload",
+        data=b"body",
+        content_type="multipart/form-data; boundary=x",
+    ) == {"uploaded": True}
+
+    headers = {key.lower(): value for key, value in seen[0].header_items()}
+    assert (seen[0].data, headers["content-type"]) == (
+        b"body",
+        "multipart/form-data; boundary=x",
+    )
+
+
+def test_request_json_data_errors(monkeypatch):
+    client = dah_api.DahApiClient(config())
+
+    def http_error(*_args, **_kwargs):
+        raise urllib.error.HTTPError(
+            "/upload",
+            400,
+            "Bad Request",
+            {},
+            io.BytesIO(b"bad"),
+        )
+
+    monkeypatch.setattr(dah_api.urllib.request, "urlopen", http_error)
+    with pytest.raises(dah_api.DahHttpError, match="HTTP 400 Bad Request"):
+        client.request_json_data(method="POST", path="/upload", data=b"body")
+
+    def url_error(*_args, **_kwargs):
+        raise urllib.error.URLError("offline")
+
+    monkeypatch.setattr(dah_api.urllib.request, "urlopen", url_error)
+    with pytest.raises(dah_api.DahRequestError, match="offline"):
+        client.request_json_data(method="POST", path="/upload", data=b"body")
+
+
+def test_multipart_file_body():
+    assert dah_api.multipart_file_body(
+        "file",
+        "report.pdf",
+        b"data",
+        "application/pdf",
+        "boundary",
+    ) == (
+        b"--boundary\r\n"
+        b'Content-Disposition: form-data; name="file"; filename="report.pdf"\r\n'
+        b"Content-Type: application/pdf\r\n\r\n"
+        b"data\r\n--boundary--\r\n"
+    )
+
+
 def test_build_request_without_body():
     plain = dah_api.DahApiClient(config())._build_request(
         method="GET",
@@ -424,6 +510,14 @@ def test_build_request_without_body():
         tab_id="manual-tab",
     )
     headers = {key.lower(): value for key, value in plain.header_items()}
+    with pytest.raises(ValueError, match="either JSON payload or raw data"):
+        dah_api.DahApiClient(config())._build_request(
+            method="POST",
+            path="/invalid",
+            query=None,
+            payload={},
+            data=b"body",
+        )
     assert (
         plain.full_url,
         plain.data,

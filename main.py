@@ -40,15 +40,18 @@ from dah_api import (
     MoneyTransactionBankListRequest,
     PublicationSaveRequest,
     PublicationsSearchRequest,
+    StorageUploadRequest,
     TenantNotificationRequest,
     default_bill_debt_analytics_payload,
     load_env_file,
+    storage_document_type,
 )
 from debtor_notifications import (
     DebtorNotificationRequest,
     DebtorNotificationService,
     NotificationLedger,
     format_debtor_notification_report,
+    scoped_user_ids,
 )
 from debtor_reports import (
     DebtorAuditRequest,
@@ -95,6 +98,7 @@ DRY_RUN_READ_ONLY_COMMANDS = {
     "publication-save",
 }
 SEND_FLAG_READ_ONLY_COMMANDS = {
+    "bill-reconciliation-send",
     "debtors-notify",
     "tenant-notification-send",
 }
@@ -210,6 +214,9 @@ class DahCli:
                 self._build_bill_reconciliation_request(args, client)
             ),
             "bill-reconciliation-download": lambda: self._download_bill_reconciliation(
+                args, client
+            ),
+            "bill-reconciliation-send": lambda: self._send_bill_reconciliation(
                 args, client
             ),
             "debtors-by-entrance": lambda: DebtorReportService(client).by_entrance(
@@ -480,6 +487,47 @@ class DahCli:
             "output": args.output,
             "bytes": len(data),
             "asPdf": request.as_pdf,
+        }
+
+    def _send_bill_reconciliation(
+        self,
+        args: argparse.Namespace,
+        client: DahApiClient,
+    ) -> dict[str, Any]:
+        payload = load_reconciliation_payload(args)
+        apartment = bill_reconciliation_apartment(args, client)
+        recipients = scoped_user_ids(apartment, args.recipient_scope)
+        group_ids = resolvable_personal_groups(client, recipients)
+        if not group_ids:
+            raise SystemExit("No active messenger recipients found for this premise.")
+
+        file_name = bill_reconciliation_file_name(args, payload)
+        result = bill_reconciliation_send_preview(
+            args,
+            payload,
+            file_name,
+            len(group_ids),
+            len(recipients) - len(group_ids),
+        )
+        if not args.send:
+            return result
+        require_apartment_confirmation(args.apartment_number, args.confirm)
+
+        bytes_sent = send_reconciliation_file(
+            client,
+            apartment,
+            payload,
+            file_name,
+            args.description,
+            group_ids,
+            args.as_pdf,
+        )
+        return {
+            **result,
+            "bytes": bytes_sent,
+            "sent": [
+                {"apartment": args.apartment_number, "recipients": len(group_ids)}
+            ],
         }
 
     def _build_feedback_order_list_request(
@@ -801,6 +849,24 @@ def bill_reconciliation_apartment_id(
     if args.apartment_id:
         return args.apartment_id
 
+    apartment = bill_reconciliation_apartment(args, client)
+    apartment_id = apartment.get("id")
+    if not isinstance(apartment_id, str) or not apartment_id:
+        raise SystemExit(f"Premise has no usable DAH id: {args.apartment_number}")
+    return apartment_id
+
+
+def bill_reconciliation_apartment(
+    args: argparse.Namespace,
+    client: DahApiClient,
+) -> dict[str, Any]:
+    if args.apartment_id:
+        if not args.apartment_number:
+            raise SystemExit(
+                "Sending by apartment id requires --apartment-number for confirmation."
+            )
+        return {"id": args.apartment_id, "number": args.apartment_number}
+
     request = DebtorNotificationRequest(
         association_id=args.association_id,
         kind=args.kind,
@@ -814,10 +880,113 @@ def bill_reconciliation_apartment_id(
         raise SystemExit(
             f"Premise not found by exact {args.kind} number: {args.apartment_number}"
         )
-    apartment_id = apartment.get("id")
-    if not isinstance(apartment_id, str) or not apartment_id:
-        raise SystemExit(f"Premise has no usable DAH id: {args.apartment_number}")
-    return apartment_id
+    return apartment
+
+
+def bill_reconciliation_file_name(
+    args: argparse.Namespace,
+    payload: dict[str, Any],
+) -> str:
+    if args.file_name:
+        return args.file_name
+    extension = "pdf" if args.as_pdf else "xlsx"
+    return (
+        f"dah-reconciliation-{args.apartment_number}-{payload['from'][:10]}.{extension}"
+    )
+
+
+def bill_reconciliation_send_preview(
+    args: argparse.Namespace,
+    payload: dict[str, Any],
+    file_name: str,
+    recipient_count: int,
+    unavailable_recipient_count: int,
+) -> dict[str, Any]:
+    return {
+        "mode": {False: "dry-run", True: "send"}[args.send],
+        "apartment": args.apartment_number,
+        "kind": args.kind,
+        "period": {"from": payload["from"], "to": payload["to"]},
+        "fileName": file_name,
+        "description": args.description,
+        "recipients": recipient_count,
+        "unavailableRecipients": unavailable_recipient_count,
+        "writes": {False: [], True: ["storage-upload", "messenger-message"]}[args.send],
+    }
+
+
+def require_apartment_confirmation(
+    apartment_number: str,
+    confirmation: str | None,
+) -> None:
+    if confirmation != apartment_number:
+        raise SystemExit("Missing --confirm matching apartment number.")
+
+
+def messenger_file_payload(
+    uploaded: Any,
+    file_name: str,
+    size: int,
+    description: str,
+) -> dict[str, Any]:
+    if not isinstance(uploaded, dict) or not isinstance(uploaded.get("link"), str):
+        raise DahRequestError("Storage upload did not return a file link.")
+    uploaded = uploaded.copy()
+    uploaded.setdefault("fileName", file_name)
+    uploaded.setdefault("size", size)
+    uploaded.setdefault("documentType", storage_document_type(file_name))
+    return {
+        "Link": uploaded["link"],
+        "Name": uploaded["fileName"],
+        "Size": uploaded["size"],
+        "Type": uploaded["documentType"],
+        **({"Description": description} if description else {}),
+    }
+
+
+def send_reconciliation_file(
+    client: DahApiClient,
+    apartment: dict[str, Any],
+    reconciliation_payload: dict[str, Any],
+    file_name: str,
+    description: str,
+    group_ids: list[str],
+    as_pdf: bool,
+) -> int:
+    data = client.download_bill_reconciliation(
+        BillReconciliationDownloadRequest(
+            apartment_id=str(apartment["id"]),
+            payload=reconciliation_payload,
+            as_pdf=as_pdf,
+        )
+    )
+    uploaded = client.upload_storage_file(
+        StorageUploadRequest(file_name, data, "application/pdf")
+    )
+    payload = json.dumps(
+        messenger_file_payload(uploaded, file_name, len(data), description),
+        separators=(",", ":"),
+    )
+    for group_id in group_ids:
+        client.send_messenger_message(
+            MessengerMessageRequest(group_id, payload, "FILE")
+        )
+    return len(data)
+
+
+def resolvable_personal_groups(
+    client: DahApiClient,
+    recipients: list[str],
+) -> list[str]:
+    resolver = PersonalGroupResolver(client)
+    group_ids = []
+    for recipient in recipients:
+        try:
+            group_ids.append(resolver.resolve(recipient))
+        except DahHttpError as error:
+            if error.status_code != 400 or "invalid_interlocutor_id" not in error.body:
+                raise
+    return group_ids
 
 
 def load_reconciliation_payload(args: argparse.Namespace) -> dict[str, Any]:

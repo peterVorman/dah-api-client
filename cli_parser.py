@@ -203,6 +203,47 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_body_arguments(reconciliation_download_parser)
 
+    reconciliation_send_parser = subparsers.add_parser(
+        "bill-reconciliation-send",
+        help="Download a bill reconciliation report and send it in DAH messenger.",
+        description=(
+            "Send an apartment or premise bill reconciliation report to a personal "
+            "DAH messenger chat. Defaults to dry-run preview."
+        ),
+    )
+    add_bill_reconciliation_arguments(reconciliation_send_parser)
+    reconciliation_send_parser.add_argument(
+        "--description",
+        default="",
+        help="Optional file message description.",
+    )
+    reconciliation_send_parser.add_argument(
+        "--file-name",
+        help="Messenger attachment filename. Defaults to a generated PDF name.",
+    )
+    reconciliation_send_parser.add_argument(
+        "--recipient-scope",
+        choices=("owners", "others", "owners+others"),
+        default="owners",
+        help="People to notify from the apartment card. Defaults to owners.",
+    )
+    reconciliation_send_parser.add_argument(
+        "--as-pdf",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Request PDF output. Use --no-as-pdf for the default non-PDF export.",
+    )
+    reconciliation_send_parser.add_argument(
+        "--send",
+        action="store_true",
+        help="Upload the report and send the messenger file message.",
+    )
+    reconciliation_send_parser.add_argument(
+        "--confirm",
+        help="Exact apartment or premise number required with --send.",
+    )
+    add_body_arguments(reconciliation_send_parser)
+
     notify_parser = subparsers.add_parser(
         "debtors-notify",
         help="Notify debtors through DAH messenger or tenant notifications.",
