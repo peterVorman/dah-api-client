@@ -313,7 +313,19 @@ class DahHttpError(RuntimeError):
 def storage_document_type(filename: str) -> str:
     name = filename.lower()
     if name.endswith(
-        ("webp", "tif", "tiff", "svg", "jpeg", "jpg", "ico", "bmp", "gif", "avif", "png")
+        (
+            "webp",
+            "tif",
+            "tiff",
+            "svg",
+            "jpeg",
+            "jpg",
+            "ico",
+            "bmp",
+            "gif",
+            "avif",
+            "png",
+        )
     ):
         return "IMG"
     if name.endswith(("doc", "docx")):
@@ -486,8 +498,10 @@ class DahApiClient:
             request.content_type,
             boundary,
         )
-        path = "/organization/v1/storage/upload/public" if request.public else (
-            "/organization/v1/storage/upload"
+        path = (
+            "/organization/v1/storage/upload/public"
+            if request.public
+            else ("/organization/v1/storage/upload")
         )
         return self.request_json_data(
             method="POST",

@@ -6,6 +6,7 @@ Use these as behavior fixtures when changing the skill.
 | --- | --- |
 | `Боржники` | Use the skill, read `intent-router.md`, fetch or prepare current debt snapshot, answer with aggregate totals and top debtors only as needed. |
 | `Є зміни?` | Compare current debt with a compatible local snapshot; state absolute delta and practical conclusion. |
+| `Дашборд` | Use `debt-dashboard`; present aggregate debt by kind and entrance, area-adjusted load, stages, today's channel activity, and state whether a prior-day baseline exists. |
 | `Порахуй боргове навантаження по підʼїздах` | Use area-adjusted entrance analysis and keep `Без підʼїзду`. |
 | `Топ боржників для повідомлень` | Use `debtors-next`, default `notification_method=auto`, avoid PII. |
 | `Повідомляємо 55` | Preview or send only after exact approval context; use `write-operation-protocol.md`. |

@@ -51,9 +51,17 @@ not implement shell syntax or quoting.
 - `python3 main.py authentication-exit` ends the active DAH session.
 
 Read-only CLI commands retry once on `401` responses that contain
-`invalid_access_token`. The retry first uses relogin when `DAH_REFRESH_TOKEN` is
-available, then falls back to web login when `DAH_LOGIN` and `DAH_PASSWORD` are
-available. Write commands do not auto-retry to avoid duplicate writes.
+`invalid_access_token`. The retry first uses relogin when `DAH_REFRESH_TOKEN`
+is available and passes `DAH_DEVICE_ID` when present. If DAH rejects relogin
+with `401` or `device_id_required`, the CLI falls back to web login when
+`DAH_LOGIN` and `DAH_PASSWORD` are available. A successful refresh saves
+sanitized recognized auth fields into `.env.local`. Write commands do not
+auto-retry to avoid duplicate writes.
+
+Use `auth-status` before diagnosing a live read failure. It reports token
+presence, expiry when the token is a JWT, and access reachability without
+revealing credential values. Do not manually copy a token into a command-line
+argument.
 
 Never print bearer tokens, refresh tokens, logins, or passwords. Do not pass
 tokens through CLI arguments.

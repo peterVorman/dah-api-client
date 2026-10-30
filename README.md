@@ -48,6 +48,7 @@ python main.py access
 python main.py bill-reconciliation --apartment-number 55 --from-date YYYY-MM-DDT00:00:00 --to-date YYYY-MM-DDT23:59:59
 python main.py bill-reconciliation-send --apartment-number 55 --from-date YYYY-MM-DDT00:00:00 --to-date YYYY-MM-DDT23:59:59
 python main.py bill-reconciliation-send --apartment-number 55 --from-date YYYY-MM-DDT00:00:00 --to-date YYYY-MM-DDT23:59:59 --send --confirm 55
+python main.py debt-dashboard --write
 ```
 
 For local configuration, prefer `.env.local` with plain `KEY=value` lines. That

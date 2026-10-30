@@ -137,6 +137,18 @@
       "references": ["workflows.md", "output-templates.md"]
     },
     {
+      "name": "debt-dashboard",
+      "mode": "read",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": [
+        "dashboard.md",
+        "output-templates.md",
+        "configuration.md"
+      ]
+    },
+    {
       "name": "ledger-add-contact",
       "mode": "local-write",
       "requiresEnv": [],

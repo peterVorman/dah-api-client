@@ -69,6 +69,7 @@ class DebtorNotificationRequest:
 class DebtorNotification:
     apartment_number: str
     apartment_label: str
+    kind: str
     debt: float
     message: str
     recipient_ids: list[str]
@@ -276,6 +277,7 @@ class DebtorNotificationService:
         return DebtorNotification(
             apartment_number=debtor["number"],
             apartment_label=debtor["label"],
+            kind=debtor_kind(debtor["label"]),
             debt=debtor["debt"],
             message=request.message_template.format(
                 apartment_label=message_apartment_label(debtor["label"]),
@@ -634,18 +636,20 @@ class NotificationLedger:
         result: dict[str, Any] | None = None,
     ) -> None:
         if request.write_ledger:
-            self.append(
-                {
-                    "date": today_iso(),
-                    "apartment": record_apartment(source),
-                    "debt": record_debt(source),
-                    "status": status,
-                    "recipients": result.get("recipients", 0) if result else 0,
-                    "debtFilterAccruals": request.debt_filter_accruals,
-                    "notificationMethod": record_notification_method(request, source),
-                    "recipientScope": record_recipient_scope(request, source),
-                }
-            )
+            record = {
+                "date": today_iso(),
+                "apartment": record_apartment(source),
+                "debt": record_debt(source),
+                "status": status,
+                "recipients": result.get("recipients", 0) if result else 0,
+                "debtFilterAccruals": request.debt_filter_accruals,
+                "notificationMethod": record_notification_method(request, source),
+                "recipientScope": record_recipient_scope(request, source),
+            }
+            kind = record_kind(request, source)
+            if kind:
+                record["kind"] = kind
+            self.append(record)
 
     def record_manual_contact(
         self,
@@ -738,6 +742,14 @@ def record_debt(source: Any) -> float:
     if isinstance(source, DebtorNotification):
         return round(source.debt, 2)
     return float(source.get("debt", 0))
+
+
+def record_kind(request: DebtorNotificationRequest, source: Any) -> str:
+    if isinstance(source, DebtorNotification):
+        return source.kind
+    if isinstance(source, dict) and source.get("kind") in {"apartment", "premise"}:
+        return str(source["kind"])
+    return request.kind if request.kind != "all" else ""
 
 
 def record_notification_method(

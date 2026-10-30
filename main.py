@@ -54,6 +54,7 @@ from debtor_notifications import (
     scoped_user_ids,
 )
 from debtor_reports import (
+    DebtDashboardRequest,
     DebtorAuditRequest,
     DebtorNextRequest,
     DebtorReportService,
@@ -84,6 +85,7 @@ READ_ONLY_COMMANDS = {
     "debtors-by-entrance",
     "debtors-next",
     "debtor-audit",
+    "debt-dashboard",
     "debt-snapshot",
     "feedback-order-list",
     "apartment-list",
@@ -170,7 +172,7 @@ class DahCli:
                 )
             )
         except DahHttpError as exc:
-            if exc.status_code != 401:
+            if exc.status_code != 401 and "device_id_required" not in exc.body:
                 raise
             return DahCli._web_login_auth_response(client)
 
@@ -237,6 +239,9 @@ class DahCli:
             ),
             "debt-snapshot": lambda: DebtorReportService(client).snapshot(
                 self._build_debt_snapshot_request(args)
+            ),
+            "debt-dashboard": lambda: DebtorReportService(client).dashboard(
+                self._build_debt_dashboard_request(args)
             ),
             "ledger-add-contact": lambda: self._ledger_add_contact(args),
             "tenant-notification-send": lambda: (
@@ -603,6 +608,20 @@ class DahCli:
         return DebtSnapshotRequest(
             **debtor_request_kwargs(args, include_limit=False),
             snapshot_path=args.snapshot_path,
+            write_snapshot=args.write,
+        )
+
+    @staticmethod
+    def _build_debt_dashboard_request(
+        args: argparse.Namespace,
+    ) -> DebtDashboardRequest:
+        return DebtDashboardRequest(
+            association_id=args.association_id,
+            date=args.date,
+            debt_filter_accruals=args.debt_filter_accruals,
+            min_debt=args.min_debt,
+            ledger_path=args.ledger_path,
+            dashboard_path=args.dashboard_path,
             write_snapshot=args.write,
         )
 

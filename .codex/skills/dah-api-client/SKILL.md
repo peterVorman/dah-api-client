@@ -1,6 +1,6 @@
 ---
 name: dah-api-client
-description: Work with the DAH cabinet API through the local Python client in the current repository. Use when Codex needs to query DAH/Dah Online API data, call organization access, apartment list, web login, relogin, or exit authentication, search/get/create/edit publications, accounting bill debt analytics, bill reconciliation report/download/send, debtor audit, aggregate debt snapshots, debtor notification workflow, feedback order list, tenant APP/EMAIL/SMS notification send, bank money transaction list, messenger groups page, messenger personal group get, messenger group messages, or send messenger text/file endpoints, inspect DAH API responses, create small API scripts, or extend the existing dah_api.py client and main.py CLI instead of writing a separate HTTP client.
+description: Work with the DAH cabinet API through the local Python client in the current repository. Use when Codex needs to query DAH/Dah Online API data, call organization access, apartment list, web login, relogin, or exit authentication, search/get/create/edit publications, accounting bill debt analytics, bill reconciliation report/download/send, debtor audit, daily debtor dashboards, aggregate debt snapshots, debtor notification workflow, feedback order list, tenant APP/EMAIL/SMS notification send, bank money transaction list, messenger groups page, messenger personal group get, messenger group messages, or send messenger text/file endpoints, inspect DAH API responses, create small API scripts, or extend the existing dah_api.py client and main.py CLI instead of writing a separate HTTP client.
 ---
 
 # DAH API Client
@@ -36,6 +36,8 @@ authorized operation.
      licensing guardrails.
    - `references/workflows.md` for debtor, publication, feedback-order, ledger,
      and bank reconciliation workflows.
+   - `references/dashboard.md` for dashboard fields, daily baseline rules,
+     communication stages, and interpretation of area-adjusted debt.
    - `references/endpoints.md` for functions, endpoint paths, payloads, and
      extension patterns.
    - `references/safety-decision-table.md` before exposing sensitive data or
@@ -112,7 +114,12 @@ in `references/output-templates.md`. Do not print raw DAH ids, contact details,
 credentials, or full raw API responses unless strictly required for an
 authorized action.
 
-If a live call returns `401 Unauthorized`, treat it as an authentication/token freshness issue first. Ask for or use a fresh `DAH_BEARER_TOKEN`; do not hard-code tokens.
+For a read-only command that returns `401` with `invalid_access_token`, the CLI
+performs one controlled refresh: it tries relogin when a refresh token is
+available, then uses web login when credentials are configured and relogin is
+rejected (including `device_id_required`). Only after that fails should the
+user be asked to refresh their authorized local credentials. Never hard-code or
+print tokens.
 
 ## Error Handling
 

@@ -15,6 +15,7 @@ REQUIRED_FILES = (
     "references/client-usage.md",
     "references/commands.json",
     "references/configuration.md",
+    "references/dashboard.md",
     "references/endpoints.md",
     "references/golden-prompts.md",
     "references/intent-router.md",
@@ -76,7 +77,8 @@ def validate_skill(skill_dir: Path) -> list[str]:
     skill_text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
     metadata = frontmatter_metadata(skill_text)
     errors.extend(
-        f"SKILL.md frontmatter missing {field}" for field in ("name", "description")
+        f"SKILL.md frontmatter missing {field}"
+        for field in ("name", "description")
         if not metadata.get(field)
     )
     errors.extend(

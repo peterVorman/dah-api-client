@@ -26,6 +26,8 @@ Read only the reference needed for the task:
   and required environment.
 - `workflows.md`: recurring debtor, publication, feedback-order, ledger, and
   bank-reconciliation workflows.
+- `debt-dashboard.md`: dashboard schema, snapshot lifecycle, stages, and
+  interpretation rules.
 - `endpoints.md`: function map, endpoint paths, default payloads, and endpoint
   extension checklist.
 - `safety-decision-table.md`: what can be shown, stored, or written.
@@ -57,6 +59,8 @@ python3 main.py debtors-notify --apartment-number 55 --send --confirm 55
 python3 main.py debtors-by-entrance --area-adjusted --kind apartment
 python3 main.py debtor-audit --apartment-number 55 --from-date YYYY-MM-DDT00:00:00
 python3 main.py debt-snapshot --write --kind all
+python3 main.py debt-dashboard
+python3 main.py debt-dashboard --write --debt-filter-accruals 2
 python3 main.py ledger-add-contact --apartment-number 55 --status contacted --note 'Contact established'
 python3 main.py feedback-order-list
 python3 main.py feedback-order-status '<feedback order id>' --status DONE --dry-run
@@ -82,7 +86,7 @@ Common flags:
 ```python
 from dah_api import BillDebtAnalyticsRequest, BillReconciliationRequest, DahApiClient, DahApiConfig
 from debtor_notifications import DebtorNotificationRequest, DebtorNotificationService
-from debtor_reports import DebtorReportService, DebtSnapshotRequest
+from debtor_reports import DebtDashboardRequest, DebtorReportService, DebtSnapshotRequest
 
 client = DahApiClient(DahApiConfig.from_env())
 debt = client.get_bill_debt_analytics(BillDebtAnalyticsRequest())
@@ -94,6 +98,7 @@ act = client.get_bill_reconciliation(
 )
 queue = DebtorNotificationService(client).run(DebtorNotificationRequest(limit=10))
 snapshot = DebtorReportService(client).snapshot(DebtSnapshotRequest(write_snapshot=True))
+dashboard = DebtorReportService(client).dashboard(DebtDashboardRequest(write_snapshot=True))
 ```
 
 Use request dataclasses from `dah_api.py`, `debtor_notifications.py`, and

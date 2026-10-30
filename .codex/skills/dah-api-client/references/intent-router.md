@@ -6,6 +6,7 @@ Use this table before choosing a command or reference file.
 | --- | --- | --- |
 | Current debtor state, "боржники зараз" | `workflows.md`, `output-templates.md` | `debt-snapshot` |
 | Debt dynamics, "є зміни" | `workflows.md`, `output-templates.md` | `debt-snapshot --write` when a baseline is needed |
+| Daily operations dashboard by type, entrance, channel, or stage | `dashboard.md`, `output-templates.md` | `debt-dashboard --write` |
 | Top debtors or next notification queue | `workflows.md`, `safety-decision-table.md` | `debtors-next` |
 | Notify debtors | `write-operation-protocol.md`, `safety-decision-table.md` | `debtors-notify` |
 | One apartment or premise audit | `workflows.md`, `output-templates.md` | `debtor-audit` |

@@ -18,7 +18,7 @@ from debtor_notifications import (
     NOTIFICATION_METHODS,
     RECIPIENT_SCOPES,
 )
-from debtor_reports import DEFAULT_DEBT_SNAPSHOT_PATH
+from debtor_reports import DEFAULT_DEBT_DASHBOARD_PATH, DEFAULT_DEBT_SNAPSHOT_PATH
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -393,6 +393,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="Append the current aggregate snapshot to the local file.",
     )
 
+    dashboard_parser = subparsers.add_parser(
+        "debt-dashboard",
+        help="Create or compare a daily debtor operations dashboard.",
+        description=(
+            "Aggregate debt by premise type and entrance, plus ledger channels and "
+            "contact stages. Use --write to append the current daily dashboard."
+        ),
+    )
+    add_association_id_argument(dashboard_parser)
+    add_debt_report_arguments(
+        dashboard_parser,
+        default_kind="all",
+        include_limit=False,
+        include_kind=False,
+        default_debt_filter_accruals=2,
+    )
+    add_ledger_path_argument(dashboard_parser)
+    dashboard_parser.add_argument(
+        "--dashboard-path",
+        default=DEFAULT_DEBT_DASHBOARD_PATH,
+        help="Local JSONL daily dashboard path.",
+    )
+    dashboard_parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Append the current daily dashboard to the local file.",
+    )
+
     ledger_parser = subparsers.add_parser(
         "ledger-add-contact",
         help="Append a manual debtor contact result to the local ledger.",
@@ -700,6 +728,8 @@ def add_debt_report_arguments(
     default_kind: str = "apartment",
     include_limit: bool = True,
     default_limit: int | None = 15,
+    include_kind: bool = True,
+    default_debt_filter_accruals: int = 1,
 ) -> None:
     parser.add_argument(
         "--date",
@@ -708,7 +738,7 @@ def add_debt_report_arguments(
     parser.add_argument(
         "--debt-filter-accruals",
         type=int,
-        default=1,
+        default=default_debt_filter_accruals,
         help="Value for debtFilterAccruals in the default debt request body.",
     )
     parser.add_argument(
@@ -727,12 +757,13 @@ def add_debt_report_arguments(
             default=default_limit,
             help=help_text,
         )
-    parser.add_argument(
-        "--kind",
-        choices=("all", "apartment", "premise"),
-        default=default_kind,
-        help=f"Debtor kind to include. Defaults to {default_kind}.",
-    )
+    if include_kind:
+        parser.add_argument(
+            "--kind",
+            choices=("all", "apartment", "premise"),
+            default=default_kind,
+            help=f"Debtor kind to include. Defaults to {default_kind}.",
+        )
 
 
 def add_notification_method_argument(parser: argparse.ArgumentParser) -> None:

@@ -28,6 +28,21 @@ Use these shapes for concise, stable answers.
 Основний рух: <apartments/premises/none>.
 ```
 
+## Daily Dashboard
+
+```text
+Дашборд на <snapshot date> (`debtFilterAccruals=<n>`):
+- Разом: <count> приміщень, <amount> грн, <amount/m2> грн/м²
+- Квартири: <count>, <amount> грн, <amount/m2> грн/м²
+- Нежитлові: <count>, <amount> грн, <amount/m2> грн/м²
+- Найбільший борг: <entrance/bucket>, <amount> грн
+- Найвище навантаження: <entrance/bucket>, <amount/m2> грн/м²
+
+Опрацювання: <stage counts and amounts>.
+Канали за сьогодні: <channel counts or no activity>.
+Динаміка: <signed amount> грн / <new baseline; no prior-day comparison>.
+```
+
 ## Entrance/Floor Analysis
 
 ```text

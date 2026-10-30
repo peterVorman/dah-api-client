@@ -3,6 +3,7 @@
 ## Contents
 
 - Current Debt Snapshot
+- Daily Debtor Dashboard
 - Entrance And Floor Analysis
 - Non-Residential Debt
 - Debtor Notification Queue
@@ -29,6 +30,28 @@ changes.
    `debtFilterAccruals`, and `minDebt`.
 6. State whether movement is mostly apartments, premises, or no meaningful
    movement.
+
+## Daily Debtor Dashboard
+
+Use when the user asks for an operational day-to-day view by premise type,
+entrance, communication channel, or contact stage.
+
+```bash
+python3 main.py debt-dashboard --write --debt-filter-accruals 2
+```
+
+1. The default `debtFilterAccruals=2` focuses the dashboard on mature debt.
+   Pass another threshold only when the user asks for it.
+2. Use the command without `--write` for an ad-hoc current view. Use `--write`
+   for one intentional daily baseline; it appends a local aggregate record and
+   never writes to DAH.
+3. Report total debt, apartment/premise totals, entrances with area-adjusted
+   load, today's and historical ledger activity by channel, and current debtor
+   stages. Do not turn the dashboard into a list of people or contact details.
+4. Say explicitly when `previous` and `delta` are absent: it is a new baseline,
+   not zero day-over-day movement.
+5. For field definitions, compatibility rules, and interpretation, read
+   [dashboard.md](dashboard.md).
 
 ## Entrance And Floor Analysis
 

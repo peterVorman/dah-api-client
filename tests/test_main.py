@@ -738,10 +738,13 @@ def test_bill_reconciliation_helpers():
     assert cli.bill_reconciliation_file_name(namespace, {"from": "2026-01-01"}) == (
         "custom.pdf"
     )
-    assert cli.bill_reconciliation_file_name(
-        argparse.Namespace(apartment_number="41", file_name=None, as_pdf=False),
-        {"from": "2026-01-01"},
-    ) == "dah-reconciliation-41-2026-01-01.xlsx"
+    assert (
+        cli.bill_reconciliation_file_name(
+            argparse.Namespace(apartment_number="41", file_name=None, as_pdf=False),
+            {"from": "2026-01-01"},
+        )
+        == "dah-reconciliation-41-2026-01-01.xlsx"
+    )
 
     with pytest.raises(DahRequestError, match="Storage upload"):
         cli.messenger_file_payload({}, "act.pdf", 1, "")
@@ -805,10 +808,14 @@ def test_cli_retries_read_only_after_invalid_token(cli_env, capsys, monkeypatch)
     )
 
 
-def test_cli_retry_auth_falls_back_to_login(cli_env, monkeypatch):
+@pytest.mark.parametrize(
+    ("status_code", "body"),
+    [(401, "expired"), (400, '{"message":"device_id_required"}')],
+)
+def test_cli_retry_auth_falls_back_to_login(cli_env, monkeypatch, status_code, body):
     class LoginClient:
         def authentication_relogin(self, request):
-            raise DahHttpError(401, "Unauthorized", "expired")
+            raise DahHttpError(status_code, "Unauthorized", body)
 
         def authentication_web_login(self, request):
             return {"accessToken": "login-token", "login": request.login}
@@ -1283,6 +1290,46 @@ def test_cli_debtor_audit_and_snapshot(cli_env, capsys, tmp_path):
         snapshot["previous"],
         len(snapshot_path.read_text(encoding="utf-8").splitlines()),
     ) == (4203.9, 1, 1000.0, 4203.9, None, 1)
+
+
+def test_cli_debt_dashboard(cli_env, capsys, tmp_path):
+    ledger_path = tmp_path / "ledger.jsonl"
+    dashboard_path = tmp_path / "dashboard.jsonl"
+    ledger_path.write_text(
+        '{"date":"2026-07-01","apartment":"55","status":"sent"}\n',
+        encoding="utf-8",
+    )
+    FakeClient.debt_response = {
+        "rows": [{"apartmentName": "Квартира 55", "endBalance": -4203.9}]
+    }
+    FakeClient.apartment_response = {
+        "content": [apartment("55", "1", 2, 50)],
+        "last": True,
+    }
+
+    status, report, _, client = run_cli(
+        args(
+            "debt-dashboard --date 2026-07-01T12:00 --write "
+            f"--ledger-path {ledger_path} --dashboard-path {dashboard_path}"
+        ),
+        capsys,
+    )
+
+    assert (
+        status,
+        report["current"]["debtFilterAccruals"],
+        report["current"]["summary"]["debt"],
+        report["current"]["stages"],
+        [name for name, _ in client.calls],
+        len(dashboard_path.read_text(encoding="utf-8").splitlines()),
+    ) == (
+        0,
+        2,
+        4203.9,
+        [{"stage": "notified", "count": 1, "debt": 4203.9}],
+        ["apartment-list", "bill-debt-analytics"],
+        1,
+    )
 
 
 def test_cli_debtors_notify_send_limits(cli_env, capsys):

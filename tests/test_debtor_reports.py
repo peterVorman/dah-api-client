@@ -2,6 +2,7 @@ import json
 
 from debtor_notifications import today_iso
 from debtor_reports import (
+    DebtDashboardRequest,
     DebtorAuditRequest,
     DebtorNextRequest,
     DebtorReportService,
@@ -15,6 +16,7 @@ from debtor_reports import (
     json_record,
     number_value,
     numeric_delta,
+    stage_summaries,
     string_values,
     transaction_date,
 )
@@ -38,7 +40,7 @@ class ReportClient:
                 apartment("55", "1", 2, 50),
                 apartment("84", "1", 3, 100),
                 apartment("99", "1", 2, 50),
-                apartment("175", None, 1, 200),
+                apartment("175", None, 1, 200, kind="PREMISE"),
             ],
             "last": True,
         }
@@ -62,12 +64,22 @@ class ReportClient:
         }
 
 
-def apartment(number, entrance, floor, area):
+class DashboardClient(ReportClient):
+    def __init__(self, rows):
+        self.rows = rows
+
+    def get_bill_debt_analytics(self, request):
+        self.debt_request = request
+        return {"rows": self.rows}
+
+
+def apartment(number, entrance, floor, area, kind="APARTMENT"):
     return {
         "number": number,
         "entrance": entrance,
         "floor": floor,
         "area": area,
+        "type": {"type": kind},
         "owners": [{"user": {"userId": f"user-{number}", "userStatus": "ACTIVE"}}],
     }
 
@@ -245,6 +257,158 @@ def test_debt_snapshot_uses_latest_compatible_snapshot(tmp_path):
             "debtDelta"
         ],
     ) == (compatible, 1000.0, 500.0)
+
+
+def test_debt_dashboard_writes_and_compares_days(tmp_path):
+    ledger_path = tmp_path / "ledger.jsonl"
+    dashboard_path = tmp_path / "dashboard.jsonl"
+    ledger_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "date": "2026-07-01",
+                        "apartment": "55",
+                        "status": "sent",
+                        "notificationMethod": "messenger",
+                        "recipients": 1,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "date": "2026-07-02",
+                        "apartment": "84",
+                        "kind": "apartment",
+                        "status": "contacted",
+                        "notificationMethod": "phone_call",
+                        "recipients": 1,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "date": "2026-07-03",
+                        "apartment": "175",
+                        "kind": "premise",
+                        "status": "no_answer",
+                        "notificationMethod": "phone_call",
+                        "recipients": 1,
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    client = DashboardClient(
+        [
+            {"apartmentName": "Квартира 55", "endBalance": -1000},
+            {"apartmentName": "Нежитлове приміщення 175", "endBalance": -3000},
+        ]
+    )
+    service = DebtorReportService(client)
+    baseline = service.dashboard(
+        DebtDashboardRequest(
+            date="2026-07-01T12:00",
+            ledger_path=str(ledger_path),
+            dashboard_path=str(dashboard_path),
+            write_snapshot=True,
+        )
+    )
+    client.rows = [
+        {"apartmentName": "Квартира 55", "endBalance": -1000},
+        {"apartmentName": "Квартира 84", "endBalance": -2000},
+        {"apartmentName": "Нежитлове приміщення 175", "endBalance": -3000},
+    ]
+    report = service.dashboard(
+        DebtDashboardRequest(
+            date="2026-07-04T12:00",
+            ledger_path=str(ledger_path),
+            dashboard_path=str(dashboard_path),
+            write_snapshot=True,
+        )
+    )
+
+    assert (
+        baseline["previous"],
+        report["previous"]["snapshotDate"],
+        len(dashboard_path.read_text(encoding="utf-8").splitlines()),
+    ) == (None, "2026-07-01", 2)
+    assert (
+        report["current"]["summary"],
+        report["current"]["byKind"],
+        report["current"]["communications"],
+        report["current"]["stages"],
+    ) == (
+        {"count": 3, "debt": 6000.0, "area": 400.0, "debtPerArea": 15.0},
+        [
+            {
+                "kind": "apartment",
+                "count": 2,
+                "debt": 3000.0,
+                "area": 200.0,
+                "debtPerArea": 15.0,
+            },
+            {
+                "kind": "premise",
+                "count": 1,
+                "debt": 3000.0,
+                "area": 200.0,
+                "debtPerArea": 15.0,
+            },
+        ],
+        {
+            "total": [
+                {
+                    "channel": "messenger",
+                    "events": 1,
+                    "sent": 1,
+                    "contacted": 0,
+                    "noAnswer": 0,
+                    "recipients": 1,
+                },
+                {
+                    "channel": "phone_call",
+                    "events": 2,
+                    "sent": 0,
+                    "contacted": 1,
+                    "noAnswer": 1,
+                    "recipients": 2,
+                },
+            ],
+            "today": [],
+        },
+        [
+            {"stage": "notified", "count": 1, "debt": 1000.0},
+            {"stage": "contacted", "count": 1, "debt": 2000.0},
+            {"stage": "no_answer", "count": 1, "debt": 3000.0},
+        ],
+    )
+    assert (
+        report["delta"]["summary"]["debtDelta"],
+        {row["stage"]: row["debtDelta"] for row in report["delta"]["stages"]},
+    ) == (
+        2000.0,
+        {
+            "contacted": 2000.0,
+            "new": -3000.0,
+            "no_answer": 3000.0,
+            "notified": 0.0,
+        },
+    )
+
+
+def test_debt_dashboard_marks_ambiguous_legacy_records_unknown():
+    entries = [
+        {"kind": "apartment", "number": "1", "debt": 10},
+        {"kind": "premise", "number": "1", "debt": 20},
+    ]
+    records = [
+        {"apartment": "1", "status": "sent"},
+        {"apartment": "1", "status": "ignored"},
+    ]
+
+    assert stage_summaries(entries, records) == [
+        {"stage": "unknown", "count": 2, "debt": 30.0}
+    ]
 
 
 def assert_structure_summary(report):

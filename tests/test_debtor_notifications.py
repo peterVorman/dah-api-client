@@ -362,10 +362,14 @@ def test_debtor_notification_ledger(tmp_path):
         )
     )
 
-    assert sent["sent"] == [{"apartment": "55", "recipients": 1}]
-    assert excluded["ready"] == []
-    assert '"apartment": "55"' in ledger_path.read_text(encoding="utf-8")
-    assert f'"date": "{today_iso()}"' in ledger_path.read_text(encoding="utf-8")
+    ledger = ledger_path.read_text(encoding="utf-8")
+    assert (
+        sent["sent"],
+        excluded["ready"],
+        '"apartment": "55"' in ledger,
+        '"kind": "apartment"' in ledger,
+        f'"date": "{today_iso()}"' in ledger,
+    ) == ([{"apartment": "55", "recipients": 1}], [], True, True, True)
 
 
 def test_debtor_notification_failed_send_records_ledger(tmp_path):
@@ -392,10 +396,18 @@ def test_debtor_notification_ledger_records_skipped(tmp_path):
     request = DebtorNotificationRequest(ledger_path=str(ledger_path))
     NotificationLedger(str(ledger_path)).record_skipped(
         request,
-        [{"apartment": "84", "debt": 10, "notificationMethod": "messenger"}],
+        [
+            {
+                "apartment": "84",
+                "kind": "premise",
+                "debt": 10,
+                "notificationMethod": "messenger",
+            }
+        ],
     )
 
     assert '"status": "skipped"' in ledger_path.read_text(encoding="utf-8")
+    assert '"kind": "premise"' in ledger_path.read_text(encoding="utf-8")
 
 
 def test_debtor_notification_manual_contact_ledger(tmp_path):
