@@ -16,6 +16,7 @@ class FakeClient:
     debt_response = None
     apartment_response = None
     money_response = None
+    notification_history_pages = [{"content": [], "last": True}]
     groups_pages = [{"content": [{"id": "chat-id", "name": "2 підʼїзд"}], "last": True}]
 
     def __init__(self, config):
@@ -94,6 +95,10 @@ class FakeClient:
 
     def send_tenant_notification(self, request):
         return self.record("tenant-notification-send", request)
+
+    def list_notification_history(self, request):
+        self.calls.append(("notification-history", request))
+        return type(self).notification_history_pages[0]
 
     def list_apartments(self, request):
         if type(self).apartment_response is not None:
@@ -430,6 +435,42 @@ CASES = [
         "tenant-notification-send",
         ("association_id", "tenant_id", "text"),
         {"association_id": "assoc-id", "tenant_id": "tenant-id", "text": "Hello"},
+    ),
+    single(
+        args(
+            "notification-history --association-id assoc-id --channel email "
+            "--page 1 --size 25 --body '{\"status\":\"SENT\"}'"
+        ),
+        {"content": [], "last": True},
+        "notification-history",
+        ("channel", "association_id", "page", "size", "payload"),
+        {
+            "channel": "email",
+            "association_id": "assoc-id",
+            "page": 1,
+            "size": 25,
+            "payload": {"status": "SENT"},
+        },
+    ),
+    single(
+        args("notification-history-sync --association-id assoc-id"),
+        {
+            "mode": "dry-run",
+            "channel": "email",
+            "eligible": 0,
+            "alreadySynced": 0,
+            "ready": 0,
+            "synced": 0,
+        },
+        "notification-history",
+        ("channel", "association_id", "page", "size", "payload"),
+        {
+            "channel": "email",
+            "association_id": "assoc-id",
+            "page": 0,
+            "size": 50,
+            "payload": {},
+        },
     ),
     single(
         args("apartment-list --association-id assoc-id --page 1 --size 25"),
@@ -843,6 +884,8 @@ def test_cli_retry_auth_falls_back_to_login(cli_env, monkeypatch, status_code, b
         (argparse.Namespace(command="debtors-notify", send=False), True),
         (argparse.Namespace(command="debtors-notify", send=True), False),
         (argparse.Namespace(command="tenant-notification-send", send=False), True),
+        (argparse.Namespace(command="notification-history"), True),
+        (argparse.Namespace(command="notification-history-sync"), True),
         (argparse.Namespace(command="messenger-send-message", dry_run=True), True),
         (argparse.Namespace(command="feedback-order-status", dry_run=False), False),
     ],

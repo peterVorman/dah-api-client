@@ -12,6 +12,7 @@
 - Debtor Publication In DAH
 - Feedback Order Closure
 - Bank Expense Reconciliation
+- Server Notification History Sync
 
 ## Current Debt Snapshot
 
@@ -109,6 +110,26 @@ Record `notificationMethod: "phone_call"`, `status: "contacted"` for successful
 contact, and `status: "no_answer"` when nobody answered. Store a short note,
 current debt when known, recipient scope, and recipient count. Do not store phone
 numbers, emails, personal ids, names, or unnecessary personal details.
+
+## Server Notification History Sync
+
+Use this to backfill the local debtor communication ledger from DAH delivery
+history without importing contact details or message bodies.
+
+```bash
+python3 main.py notification-history-sync
+python3 main.py notification-history-sync --write
+```
+
+1. Run the preview first. It fetches only E-mail history and selects successful
+   messages that clearly concern debt.
+2. `--write` appends only unseen events. A SHA-256 fingerprint of the server
+   event and apartment number makes later syncs idempotent without persisting a
+   raw DAH server id.
+3. Existing local E-mail `sent` records with the same date and apartment are
+   treated as already represented to avoid legacy duplicates.
+4. Do not sync SMS history into the debtor ledger: the server response contains
+   a masked recipient but no reliable apartment or tenant identifier.
 
 ## Single Apartment Payment Analysis
 

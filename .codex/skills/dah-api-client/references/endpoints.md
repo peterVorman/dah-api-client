@@ -34,6 +34,9 @@
   `PUT /feedback/order/comment/<orderId>`.
 - `DahApiClient.send_tenant_notification()`:
   `POST /communication/v1/client/notification/<associationId>/tenant/send`.
+- `DahApiClient.list_notification_history()`:
+  `POST /communication/v1/sms/history/<associationId>/list` or
+  `POST /communication/v1/email/history/<associationId>/list`.
 - `DahApiClient.list_money_transaction_bank()`:
   `POST /accounting/v1/money/transaction/<associationId>/list/bank`.
 - `DahApiClient.list_apartments()`:
@@ -113,6 +116,26 @@ Tenant notification:
   "textHtml": "<p>escaped text with <br> for line breaks</p>"
 }
 ```
+
+Notification delivery history:
+
+```json
+{}
+```
+
+Use `NotificationHistoryRequest(channel="sms" | "email")` with `page` and
+`size`. The API returns sensitive delivery records, including recipients, message
+text, delivery status, and authors; do not copy raw responses into public
+artifacts. Pass channel-specific filters with `--body` or `--body-file` when
+needed.
+
+`notification-history-sync` makes a local ledger preview by default. With
+`--write`, it imports only successful E-mail records that are clearly related to
+debt and include a DAH apartment number. Each local record retains the date,
+apartment number, channel, and a SHA-256 event fingerprint; it intentionally
+omits message text, E-mail addresses, phone numbers, names, tenant ids, and raw
+server ids. SMS history has no apartment or tenant identifier, so it is not
+synced into the debtor ledger.
 
 Messenger message:
 

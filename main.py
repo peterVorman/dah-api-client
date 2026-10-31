@@ -38,6 +38,7 @@ from dah_api import (
     MessengerMessageRequest,
     MessengerPersonalGroupRequest,
     MoneyTransactionBankListRequest,
+    NotificationHistoryRequest,
     PublicationSaveRequest,
     PublicationsSearchRequest,
     StorageUploadRequest,
@@ -49,6 +50,8 @@ from dah_api import (
 from debtor_notifications import (
     DebtorNotificationRequest,
     DebtorNotificationService,
+    NotificationHistorySyncRequest,
+    NotificationHistorySyncService,
     NotificationLedger,
     format_debtor_notification_report,
     scoped_user_ids,
@@ -88,6 +91,8 @@ READ_ONLY_COMMANDS = {
     "debt-dashboard",
     "debt-snapshot",
     "feedback-order-list",
+    "notification-history",
+    "notification-history-sync",
     "apartment-list",
     "money-transaction-bank-list",
     "messenger-group-messages",
@@ -247,6 +252,12 @@ class DahCli:
             "tenant-notification-send": lambda: (
                 self._send_or_preview_tenant_notification(args, client)
             ),
+            "notification-history": lambda: client.list_notification_history(
+                self._build_notification_history_request(args)
+            ),
+            "notification-history-sync": lambda: NotificationHistorySyncService(
+                client
+            ).run(self._build_notification_history_sync_request(args)),
             "apartment-list": lambda: client.list_apartments(
                 self._build_apartment_list_request(args)
             ),
@@ -674,6 +685,30 @@ class DahCli:
         )
         validate_tenant_notification_request(request)
         return request
+
+    def _build_notification_history_request(
+        self,
+        args: argparse.Namespace,
+    ) -> NotificationHistoryRequest:
+        return NotificationHistoryRequest(
+            channel=args.channel,
+            association_id=args.association_id,
+            page=args.page,
+            size=args.size,
+            payload=load_payload(args, {}),
+        )
+
+    @staticmethod
+    def _build_notification_history_sync_request(
+        args: argparse.Namespace,
+    ) -> NotificationHistorySyncRequest:
+        return NotificationHistorySyncRequest(
+            association_id=args.association_id,
+            ledger_path=args.ledger_path,
+            write_ledger=args.write,
+            from_date=args.from_date,
+            to_date=args.to_date,
+        )
 
     def _build_money_transaction_bank_list_request(
         self,

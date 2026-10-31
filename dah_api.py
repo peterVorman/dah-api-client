@@ -28,6 +28,7 @@ DEFAULT_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/146.0.0.0 Safari/537.36"
 )
+NOTIFICATION_HISTORY_CHANNELS = ("sms", "email")
 ENV_ASSIGNMENT_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$")
 MISSING_BEARER_TOKEN_MESSAGE = "Missing bearer token. Set DAH_BEARER_TOKEN."  # nosec B105
 MISSING_ASSOCIATION_ID_MESSAGE = (
@@ -244,6 +245,23 @@ class TenantNotificationRequest:
             "text": self.text,
             "textHtml": self.text_html or text_to_html_paragraph(self.text),
         }
+
+
+@dataclass(slots=True)
+class NotificationHistoryRequest:
+    channel: str
+    association_id: str | None = None
+    page: int = 0
+    size: int = 50
+    payload: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.channel not in NOTIFICATION_HISTORY_CHANNELS:
+            supported = ", ".join(NOTIFICATION_HISTORY_CHANNELS)
+            raise ValueError(
+                f"Unsupported notification history channel: {self.channel}. "
+                f"Use one of: {supported}."
+            )
 
 
 @dataclass(slots=True)
@@ -559,6 +577,27 @@ class DahApiClient:
                 f"/communication/v1/client/notification/{association_id}/tenant/send"
             ),
             payload=request.to_payload(),
+            tab_id=tab_id,
+        )
+
+    def list_notification_history(
+        self,
+        request: NotificationHistoryRequest,
+        *,
+        tab_id: str | None = None,
+    ) -> Any:
+        association_id = urllib.parse.quote(
+            request.association_id or self.get_default_association_id(),
+            safe="",
+        )
+        return self.request_json(
+            method="POST",
+            path=(
+                f"/communication/v1/{request.channel}/history/"
+                f"{association_id}/list"
+            ),
+            query={"page": request.page, "size": request.size},
+            payload=request.payload,
             tab_id=tab_id,
         )
 

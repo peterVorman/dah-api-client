@@ -65,6 +65,10 @@ python3 main.py ledger-add-contact --apartment-number 55 --status contacted --no
 python3 main.py feedback-order-list
 python3 main.py feedback-order-status '<feedback order id>' --status DONE --dry-run
 python3 main.py tenant-notification-send --tenant-id '<tenant id>' --text 'Повідомлення'
+python3 main.py notification-history --channel sms --page 0 --size 50
+python3 main.py notification-history --channel email --page 0 --size 50
+python3 main.py notification-history-sync
+python3 main.py notification-history-sync --write
 python3 main.py apartment-list --page 0 --size 50
 python3 main.py money-transaction-bank-list --direction EXPENSE --from-date YYYY-MM-DDT00:00:00
 python3 main.py messenger-groups-page --page 0 --size 50

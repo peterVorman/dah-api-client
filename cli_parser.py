@@ -10,6 +10,7 @@ from dah_api import (
     DEFAULT_ORIGIN,
     DEFAULT_REFERER,
     DEFAULT_USER_AGENT,
+    NOTIFICATION_HISTORY_CHANNELS,
 )
 from debtor_notifications import (
     CONTACT_STATUSES,
@@ -532,6 +533,47 @@ def build_parser() -> argparse.ArgumentParser:
         help="Tenant id confirmation required with --send.",
     )
     add_body_arguments(tenant_notification_parser)
+
+    notification_history_parser = subparsers.add_parser(
+        "notification-history",
+        help=(
+            "POST /communication/v1/{sms|email}/history/{associationId}/list"
+        ),
+        description="Fetch server-side DAH SMS or E-mail delivery history.",
+    )
+    add_association_id_argument(notification_history_parser)
+    notification_history_parser.add_argument(
+        "--channel",
+        choices=NOTIFICATION_HISTORY_CHANNELS,
+        required=True,
+        help="Delivery channel history to fetch.",
+    )
+    add_paging_arguments(notification_history_parser)
+    add_body_arguments(notification_history_parser)
+
+    history_sync_parser = subparsers.add_parser(
+        "notification-history-sync",
+        help="Sync debt-related DAH E-mail delivery history into the local ledger.",
+        description=(
+            "Preview or import successful debt-related E-mail history into the "
+            "local ledger. SMS history has no apartment identifier and is excluded."
+        ),
+    )
+    add_association_id_argument(history_sync_parser)
+    history_sync_parser.add_argument(
+        "--from-date",
+        help="Optional createdFrom filter in YYYY-MM-DDTHH:MM:SS format.",
+    )
+    history_sync_parser.add_argument(
+        "--to-date",
+        help="Optional createdTo filter in YYYY-MM-DDTHH:MM:SS format.",
+    )
+    add_ledger_path_argument(history_sync_parser)
+    history_sync_parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Append eligible records to the local ledger. Omit for preview.",
+    )
 
     apartment_parser = subparsers.add_parser(
         "apartment-list",

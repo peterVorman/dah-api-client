@@ -100,6 +100,7 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
         dah_api.FeedbackOrderListRequest().payload,
         dah_api.FeedbackOrderStatusRequest("order-id").to_payload(),
         dah_api.TenantNotificationRequest("tenant-id", "line 1\nline 2").to_payload(),
+        dah_api.NotificationHistoryRequest("sms").payload,
         dah_api.ApartmentListRequest().payload,
         dah_api.MessengerGroupMessagesRequest("g").payload,
         dah_api.MessengerGroupsPageRequest().payload,
@@ -150,6 +151,7 @@ def test_env_config_and_payload_defaults(tmp_path, monkeypatch):
             "text": "line 1\nline 2",
             "textHtml": "<p>line 1<br>line 2</p>",
         },
+        {},
         {},
         {},
         {},
@@ -261,6 +263,15 @@ def test_endpoint_requests():
             text_html="<p>hello</p>",
         )
     )
+    client.list_notification_history(
+        dah_api.NotificationHistoryRequest(
+            "email",
+            "history/assoc",
+            11,
+            12,
+            {"status": "SENT"},
+        )
+    )
     client.list_apartments(
         dah_api.ApartmentListRequest("apartment/id", 1, 2, {"apartments": True})
     )
@@ -301,6 +312,7 @@ def test_endpoint_requests():
         "/feedback/order/list/feedback%2Fid",
         "/feedback/order/comment/order%2Fid",
         "/communication/v1/client/notification/tenant%2Fassoc/tenant/send",
+        "/communication/v1/email/history/history%2Fassoc/list",
         "/organization/v1/apartment/apartment%2Fid/list",
         "/accounting/v1/money/transaction/money%2Fid/list/bank",
         "/messenger/groups/group%2Fid/messages",
@@ -331,9 +343,11 @@ def test_endpoint_requests():
         client.calls[13]["payload"],
         client.calls[14]["payload"],
         client.calls[15]["query"],
+        client.calls[15]["payload"],
         client.calls[16]["query"],
-        client.calls[19]["method"],
-        client.calls[20]["payload"],
+        client.calls[17]["query"],
+        client.calls[20]["method"],
+        client.calls[21]["payload"],
     ) == (
         {
             "clientId": "DAH_CLIENT_WEB",
@@ -374,6 +388,8 @@ def test_endpoint_requests():
             "text": "hello",
             "textHtml": "<p>hello</p>",
         },
+        {"page": 11, "size": 12},
+        {"status": "SENT"},
         {"page": 1, "size": 2},
         {"page": 3, "size": 4},
         "GET",
@@ -384,6 +400,11 @@ def test_endpoint_requests():
             "type": "TEXT",
         },
     )
+
+
+def test_notification_history_rejects_unknown_channel():
+    with pytest.raises(ValueError, match="Unsupported notification history channel"):
+        dah_api.NotificationHistoryRequest("app")
 
 
 def test_request_json_success(monkeypatch):

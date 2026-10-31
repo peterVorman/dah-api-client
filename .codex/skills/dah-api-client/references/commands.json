@@ -181,6 +181,22 @@
       "references": ["write-operation-protocol.md", "safety-decision-table.md"]
     },
     {
+      "name": "notification-history",
+      "mode": "read-sensitive",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["endpoints.md", "safety-decision-table.md"]
+    },
+    {
+      "name": "notification-history-sync",
+      "mode": "local-write",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": true,
+      "requiresApproval": false,
+      "references": ["endpoints.md", "workflows.md", "safety-decision-table.md"]
+    },
+    {
       "name": "apartment-list",
       "mode": "read-sensitive",
       "requiresEnv": ["DAH_BEARER_TOKEN"],

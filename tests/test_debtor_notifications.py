@@ -18,6 +18,8 @@ from debtor_data import (
 from debtor_notifications import (
     DebtorNotificationRequest,
     DebtorNotificationService,
+    NotificationHistorySyncRequest,
+    NotificationHistorySyncService,
     NotificationLedger,
     active_owner_tenant_ids,
     active_owner_user_ids,
@@ -101,6 +103,48 @@ class NotificationClient:
         assert isinstance(request, TenantNotificationRequest)
         self.sent.append(request)
         return {}
+
+
+class HistoryClient:
+    def __init__(self):
+        self.requests = []
+
+    def list_notification_history(self, request):
+        self.requests.append(request)
+        return {
+            "content": [
+                {
+                    "id": "history-55",
+                    "created": "2026-10-30T12:00:00",
+                    "status": "SENT",
+                    "subject": "Заборгованість",
+                    "text": "Просимо погасити борг.",
+                    "apartments": [{"apartmentNumber": "55"}],
+                },
+                {
+                    "id": "history-84",
+                    "created": "2026-10-30T12:01:00",
+                    "status": "SENT",
+                    "text": "Заборгованість перед ОСББ.",
+                    "apartments": [{"apartmentNumber": "84"}],
+                },
+                {
+                    "id": "history-not-debt",
+                    "created": "2026-10-30T12:02:00",
+                    "status": "SENT",
+                    "text": "Загальна інформація.",
+                    "apartments": [{"apartmentNumber": "20"}],
+                },
+                {
+                    "id": "history-not-sent",
+                    "created": "2026-10-30T12:03:00",
+                    "status": "NOT_SENT",
+                    "text": "Заборгованість.",
+                    "apartments": [{"apartmentNumber": "21"}],
+                },
+            ],
+            "last": True,
+        }
 
 
 def test_debtor_notification_preview_and_send(tmp_path):
@@ -439,6 +483,86 @@ def test_debtor_notification_manual_contact_ledger(tmp_path):
         2,
         "No answer.",
         [record],
+    )
+
+
+def test_notification_history_sync_preview_and_write(tmp_path):
+    ledger_path = tmp_path / "ledger.jsonl"
+    ledger = NotificationLedger(str(ledger_path))
+    ledger.append(
+        {
+            "date": "2026-10-30",
+            "apartment": "84",
+            "status": "sent",
+            "notificationMethod": "email",
+        }
+    )
+    client = HistoryClient()
+    service = NotificationHistorySyncService(client)
+    request = NotificationHistorySyncRequest(
+        association_id="assoc-id",
+        ledger_path=str(ledger_path),
+        from_date="2026-10-01T00:00:00",
+        to_date="2026-10-31T23:59:59",
+    )
+
+    preview = service.run(request)
+    written = service.run(
+        NotificationHistorySyncRequest(
+            association_id="assoc-id",
+            ledger_path=str(ledger_path),
+            write_ledger=True,
+        )
+    )
+    repeated = service.run(request)
+    records = ledger.records()
+
+    assert (
+        preview,
+        written,
+        repeated,
+        client.requests[0].channel,
+        client.requests[0].association_id,
+        client.requests[0].payload,
+        records[-1]["apartment"],
+        records[-1]["source"],
+        "sourceFingerprint" in records[-1],
+        {"id", "subject", "text"}.isdisjoint(records[-1]),
+    ) == (
+        {
+            "mode": "dry-run",
+            "channel": "email",
+            "eligible": 2,
+            "alreadySynced": 1,
+            "ready": 1,
+            "synced": 0,
+        },
+        {
+            "mode": "write",
+            "channel": "email",
+            "eligible": 2,
+            "alreadySynced": 1,
+            "ready": 1,
+            "synced": 1,
+        },
+        {
+            "mode": "dry-run",
+            "channel": "email",
+            "eligible": 2,
+            "alreadySynced": 2,
+            "ready": 0,
+            "synced": 0,
+        },
+        "email",
+        "assoc-id",
+        {
+            "createdFrom": "2026-10-01T00:00:00",
+            "createdTo": "2026-10-31T23:59:59",
+        },
+        "55",
+        "dah_email_history",
+        True,
+        True,
     )
 
 

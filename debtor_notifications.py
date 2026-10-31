@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from datetime import date
@@ -15,6 +16,7 @@ from dah_api import (
     DahRequestError,
     MessengerMessageRequest,
     MessengerPersonalGroupRequest,
+    NotificationHistoryRequest,
     TenantNotificationRequest,
     default_bill_debt_analytics_payload,
 )
@@ -32,6 +34,7 @@ DEFAULT_NOTIFICATION_LEDGER_PATH = ".dah-notifications.jsonl"
 CONTACT_STATUSES = ("contacted", "no_answer")
 NOTIFICATION_METHODS = ("messenger", "tenant", "auto")
 PHONE_CALL_METHOD = "phone_call"
+SERVER_EMAIL_HISTORY_SOURCE = "dah_email_history"
 RECIPIENT_SCOPES = ("auto", "owners", "others", "owners+others")
 PEOPLE_SCOPE_NAMES = {
     "owners": ("owners",),
@@ -43,6 +46,7 @@ DEFAULT_DEBTOR_MESSAGE_TEMPLATE = (
     "{debt} грн.\n\n"
     "Просимо, будь ласка, якнайшвидше погасити борг."
 )
+DEBT_HISTORY_MARKERS = ("заборг", "борг", "квартплат")
 
 
 @dataclass(slots=True)
@@ -76,6 +80,15 @@ class DebtorNotification:
     notification_method: str
     recipient_scope: str
     association_id: str | None = None
+
+
+@dataclass(slots=True)
+class NotificationHistorySyncRequest:
+    association_id: str | None = None
+    ledger_path: str = DEFAULT_NOTIFICATION_LEDGER_PATH
+    write_ledger: bool = False
+    from_date: str | None = None
+    to_date: str | None = None
 
 
 class DebtorNotificationService:
@@ -585,6 +598,172 @@ def text_row(row: dict[str, Any]) -> str:
         f"{format_money(float(row.get('debt', 0)))} грн, "
         f"отримувачів: {row.get('recipients', 0)}"
     )
+
+
+class NotificationHistorySyncService:
+    def __init__(self, client: DahApiClient) -> None:
+        self.client = client
+
+    def run(self, request: NotificationHistorySyncRequest) -> dict[str, Any]:
+        ledger = NotificationLedger(request.ledger_path)
+        history = email_history_records(self.client, request)
+        candidates = email_history_candidates(history)
+        unseen = unsynced_email_history_records(candidates, ledger.records())
+        if request.write_ledger:
+            append_ledger_records(ledger, unseen)
+        return notification_history_sync_report(request, candidates, unseen)
+
+
+def email_history_records(
+    client: DahApiClient,
+    request: NotificationHistorySyncRequest,
+) -> list[dict[str, Any]]:
+    records = []
+    payload = email_history_payload(request)
+    for page in range(1000):
+        response = client.list_notification_history(
+            NotificationHistoryRequest(
+                "email",
+                association_id=request.association_id,
+                page=page,
+                size=50,
+                payload=payload,
+            )
+        )
+        records.extend(rows_from(response))
+        if apartment_pages_finished(response, page):
+            return records
+    raise DahRequestError("Email notification history did not finish paging.")
+
+
+def email_history_payload(request: NotificationHistorySyncRequest) -> dict[str, str]:
+    return {
+        key: value
+        for key, value in (
+            ("createdFrom", request.from_date),
+            ("createdTo", request.to_date),
+        )
+        if value
+    }
+
+
+def email_history_candidates(
+    history: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    return {
+        record["sourceFingerprint"]: record
+        for item in history
+        for record in email_history_ledger_records(item)
+    }
+
+
+def unsynced_email_history_records(
+    candidates: dict[str, dict[str, Any]],
+    existing: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    source_fingerprints = server_history_fingerprints(existing)
+    legacy_pairs = legacy_email_pairs(existing)
+    return [
+        record
+        for fingerprint, record in candidates.items()
+        if fingerprint not in source_fingerprints
+        if (record["date"], record["apartment"]) not in legacy_pairs
+    ]
+
+
+def server_history_fingerprints(records: list[dict[str, Any]]) -> set[str]:
+    return {
+        str(record["sourceFingerprint"])
+        for record in records
+        if record.get("source") == SERVER_EMAIL_HISTORY_SOURCE
+        if record.get("sourceFingerprint")
+    }
+
+
+def legacy_email_pairs(records: list[dict[str, Any]]) -> set[tuple[str, str]]:
+    return {
+        (str(record.get("date", ""))[:10], str(record.get("apartment", "")))
+        for record in records
+        if record.get("notificationMethod") == "email"
+        if record.get("status") == "sent"
+    }
+
+
+def append_ledger_records(
+    ledger: NotificationLedger,
+    records: list[dict[str, Any]],
+) -> None:
+    for record in records:
+        ledger.append(record)
+
+
+def notification_history_sync_report(
+    request: NotificationHistorySyncRequest,
+    candidates: dict[str, dict[str, Any]],
+    unseen: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "mode": "write" if request.write_ledger else "dry-run",
+        "channel": "email",
+        "eligible": len(candidates),
+        "alreadySynced": len(candidates) - len(unseen),
+        "ready": len(unseen),
+        "synced": len(unseen) if request.write_ledger else 0,
+    }
+
+
+def email_history_is_eligible(record: dict[str, Any]) -> bool:
+    return (
+        record.get("status") == "SENT"
+        and email_history_has_identifiers(record)
+        and email_history_mentions_debt(record)
+    )
+
+
+def email_history_has_identifiers(record: dict[str, Any]) -> bool:
+    return all(
+        isinstance(value, str) and value
+        for value in (record.get("id"), record.get("created"))
+    )
+
+
+def email_history_mentions_debt(record: dict[str, Any]) -> bool:
+    message = " ".join(
+        str(record.get(field, "")) for field in ("subject", "text", "details")
+    ).casefold()
+    return any(marker in message for marker in DEBT_HISTORY_MARKERS)
+
+
+def email_history_apartment_numbers(record: dict[str, Any]) -> list[str]:
+    return [
+        apartment_number
+        for apartment in rows_from(record.get("apartments", []))
+        if isinstance(apartment_number := apartment.get("apartmentNumber"), str)
+        if apartment_number
+    ]
+
+
+def email_history_ledger_records(record: dict[str, Any]) -> list[dict[str, Any]]:
+    if not email_history_is_eligible(record):
+        return []
+    message_id = str(record["id"])
+    record_date = str(record["created"])[:10]
+    return [
+        {
+            "date": record_date,
+            "apartment": apartment_number,
+            "debt": 0,
+            "status": "sent",
+            "recipients": 1,
+            "notificationMethod": "email",
+            "recipientScope": "server_history",
+            "source": SERVER_EMAIL_HISTORY_SOURCE,
+            "sourceFingerprint": hashlib.sha256(
+                f"{message_id}:{apartment_number}".encode("utf-8")
+            ).hexdigest(),
+        }
+        for apartment_number in email_history_apartment_numbers(record)
+    ]
 
 
 class NotificationLedger:
