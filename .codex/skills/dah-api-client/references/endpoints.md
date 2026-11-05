@@ -37,6 +37,8 @@
 - `DahApiClient.list_notification_history()`:
   `POST /communication/v1/sms/history/<associationId>/list` or
   `POST /communication/v1/email/history/<associationId>/list`.
+- `DahApiClient.get_sms_quota()`:
+  `GET /accounting/v1/settings/<associationId>/sms`.
 - `DahApiClient.list_money_transaction_bank()`:
   `POST /accounting/v1/money/transaction/<associationId>/list/bank`.
 - `DahApiClient.list_apartments()`:
@@ -136,6 +138,22 @@ apartment number, channel, and a SHA-256 event fingerprint; it intentionally
 omits message text, E-mail addresses, phone numbers, names, tenant ids, and raw
 server ids. SMS history has no apartment or tenant identifier, so it is not
 synced into the debtor ledger.
+
+SMS quota:
+
+`SmsQuotaRequest(association_id=None, refresh=False)` calls the DAH Cabinet SMS
+settings endpoint and returns a sanitized DAH-provider summary: `periodLimit`,
+`used`, and `remaining`, each with `smsCount` and `balance` when provided. It
+intentionally excludes AlphaSMS settings and tokens. `periodLimit` maps to
+DAH's `perAct` field; the endpoint does not provide an explicit calendar reset
+date. Use `sms-quota --refresh` to pass `force=true` and request a refreshed
+provider balance through the read-only GET endpoint.
+
+When a tenant notification enables SMS, `send_tenant_notification()` performs
+that refreshed quota check immediately before its POST. It blocks a disabled,
+unknown, or exhausted `remaining.smsCount` value; set the SMS detail to `false`
+to send only through the other selected channels. DAH remains the authority for
+final delivery and SMS segment consumption.
 
 Messenger message:
 

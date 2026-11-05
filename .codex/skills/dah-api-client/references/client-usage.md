@@ -66,6 +66,8 @@ python3 main.py feedback-order-list
 python3 main.py feedback-order-status '<feedback order id>' --status DONE --dry-run
 python3 main.py tenant-notification-send --tenant-id '<tenant id>' --text 'Повідомлення'
 python3 main.py notification-history --channel sms --page 0 --size 50
+python3 main.py sms-quota
+python3 main.py sms-quota --refresh
 python3 main.py notification-history --channel email --page 0 --size 50
 python3 main.py notification-history-sync
 python3 main.py notification-history-sync --write
@@ -88,7 +90,7 @@ Common flags:
 ## Python Quick Start
 
 ```python
-from dah_api import BillDebtAnalyticsRequest, BillReconciliationRequest, DahApiClient, DahApiConfig
+from dah_api import BillDebtAnalyticsRequest, BillReconciliationRequest, DahApiClient, DahApiConfig, SmsQuotaRequest
 from debtor_notifications import DebtorNotificationRequest, DebtorNotificationService
 from debtor_reports import DebtDashboardRequest, DebtorReportService, DebtSnapshotRequest
 
@@ -100,6 +102,7 @@ act = client.get_bill_reconciliation(
         payload={"from": "YYYY-MM-DDT00:00:00", "to": "YYYY-MM-DDT23:59:59"},
     )
 )
+sms_quota = client.get_sms_quota(SmsQuotaRequest(refresh=True))
 queue = DebtorNotificationService(client).run(DebtorNotificationRequest(limit=10))
 snapshot = DebtorReportService(client).snapshot(DebtSnapshotRequest(write_snapshot=True))
 dashboard = DebtorReportService(client).dashboard(DebtDashboardRequest(write_snapshot=True))

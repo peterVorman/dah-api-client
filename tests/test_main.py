@@ -100,6 +100,9 @@ class FakeClient:
         self.calls.append(("notification-history", request))
         return type(self).notification_history_pages[0]
 
+    def get_sms_quota(self, request):
+        return self.record("sms-quota", request)
+
     def list_apartments(self, request):
         if type(self).apartment_response is not None:
             self.calls.append(("apartment-list", request))
@@ -471,6 +474,13 @@ CASES = [
             "size": 50,
             "payload": {},
         },
+    ),
+    single(
+        args("sms-quota --association-id assoc-id --refresh"),
+        {"method": "sms-quota"},
+        "sms-quota",
+        ("association_id", "refresh"),
+        {"association_id": "assoc-id", "refresh": True},
     ),
     single(
         args("apartment-list --association-id assoc-id --page 1 --size 25"),
@@ -885,6 +895,7 @@ def test_cli_retry_auth_falls_back_to_login(cli_env, monkeypatch, status_code, b
         (argparse.Namespace(command="debtors-notify", send=True), False),
         (argparse.Namespace(command="tenant-notification-send", send=False), True),
         (argparse.Namespace(command="notification-history"), True),
+        (argparse.Namespace(command="sms-quota"), True),
         (argparse.Namespace(command="notification-history-sync"), True),
         (argparse.Namespace(command="messenger-send-message", dry_run=True), True),
         (argparse.Namespace(command="feedback-order-status", dry_run=False), False),

@@ -97,6 +97,8 @@ successful messenger record in `.dah-notifications.jsonl` and still has debt, it
 prefers tenant notification. `recipient_scope="auto"` tries owners first, then
 falls back to residents/renters stored as `others`. Use
 `--recipient-scope owners+others` only when both groups should be contacted.
+Tenant notifications use SMS by default, so each enabled SMS delivery verifies
+the refreshed DAH quota before its write and stops when no SMS unit is available.
 
 ## Manual Contact Ledger
 

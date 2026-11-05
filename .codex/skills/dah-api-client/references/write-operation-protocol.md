@@ -19,7 +19,8 @@ Write commands:
 - `publication-save`: use `--dry-run` first unless already approved.
 - `feedback-order-status`: use `--dry-run` when the task id or intended status is
   not fully unambiguous.
-- `tenant-notification-send`: requires `--send --confirm-tenant-id`.
+- `tenant-notification-send`: requires `--send --confirm-tenant-id`; when SMS is
+  enabled, it refreshes and validates the DAH SMS quota before each write.
 - `messenger-send-message`: use `--dry-run` before sending new text.
 - `debtors-notify`: requires `--send` plus `--confirm` for every target; use
   `--max-send` or `--one-by-one` for risky batches.

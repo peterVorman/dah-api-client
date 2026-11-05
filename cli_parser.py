@@ -551,6 +551,18 @@ def build_parser() -> argparse.ArgumentParser:
     add_paging_arguments(notification_history_parser)
     add_body_arguments(notification_history_parser)
 
+    sms_quota_parser = subparsers.add_parser(
+        "sms-quota",
+        help="GET /accounting/v1/settings/{associationId}/sms",
+        description="Fetch the current DAH SMS resource summary.",
+    )
+    add_association_id_argument(sms_quota_parser)
+    sms_quota_parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Ask DAH to refresh the provider balance before returning the summary.",
+    )
+
     history_sync_parser = subparsers.add_parser(
         "notification-history-sync",
         help="Sync debt-related DAH E-mail delivery history into the local ledger.",

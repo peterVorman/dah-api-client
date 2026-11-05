@@ -41,6 +41,7 @@ from dah_api import (
     NotificationHistoryRequest,
     PublicationSaveRequest,
     PublicationsSearchRequest,
+    SmsQuotaRequest,
     StorageUploadRequest,
     TenantNotificationRequest,
     default_bill_debt_analytics_payload,
@@ -92,6 +93,7 @@ READ_ONLY_COMMANDS = {
     "debt-snapshot",
     "feedback-order-list",
     "notification-history",
+    "sms-quota",
     "notification-history-sync",
     "apartment-list",
     "money-transaction-bank-list",
@@ -254,6 +256,9 @@ class DahCli:
             ),
             "notification-history": lambda: client.list_notification_history(
                 self._build_notification_history_request(args)
+            ),
+            "sms-quota": lambda: client.get_sms_quota(
+                SmsQuotaRequest(args.association_id, args.refresh)
             ),
             "notification-history-sync": lambda: NotificationHistorySyncService(
                 client

@@ -261,6 +261,7 @@ def test_endpoint_requests():
             "hello",
             association_id="tenant/assoc",
             text_html="<p>hello</p>",
+            details=[{"type": "SMS", "enabled": False}],
         )
     )
     client.list_notification_history(
@@ -379,11 +380,7 @@ def test_endpoint_requests():
         "OTHER",
         {"status": "DONE"},
         {
-            "details": [
-                {"type": "APP", "enabled": True},
-                {"type": "EMAIL", "enabled": True},
-                {"type": "SMS", "enabled": True},
-            ],
+            "details": [{"type": "SMS", "enabled": False}],
             "tenantId": "tenant/id",
             "text": "hello",
             "textHtml": "<p>hello</p>",
@@ -405,6 +402,109 @@ def test_endpoint_requests():
 def test_notification_history_rejects_unknown_channel():
     with pytest.raises(ValueError, match="Unsupported notification history channel"):
         dah_api.NotificationHistoryRequest("app")
+
+
+def test_sms_quota_request_sanitizes_provider_settings(monkeypatch):
+    client = RecordingClient()
+
+    def response(**kwargs):
+        client.calls.append(kwargs)
+        return {
+            "smsSettingsDah": {
+                "enabled": True,
+                "perAct": {"smsCount": 127, "balance": 184.2},
+                "used": {"smsCount": 16, "balance": 23.2},
+                "current": {"smsCount": 111, "balance": 161.0},
+            },
+            "smsSettingsAlphaSms": {"token": "secret"},
+        }
+
+    monkeypatch.setattr(client, "request_json", response)
+
+    assert client.get_sms_quota(
+        dah_api.SmsQuotaRequest("association/id", refresh=True)
+    ) == {
+        "enabled": True,
+        "refreshed": True,
+        "periodLimit": {"smsCount": 127, "balance": 184.2},
+        "used": {"smsCount": 16, "balance": 23.2},
+        "remaining": {"smsCount": 111, "balance": 161.0},
+    }
+    assert client.calls == [
+        {
+            "method": "GET",
+            "path": "/accounting/v1/settings/association%2Fid/sms",
+            "query": {"force": "true"},
+            "tab_id": None,
+        }
+    ]
+
+
+def test_tenant_notification_checks_sms_quota(monkeypatch):
+    client = RecordingClient()
+
+    def response(**kwargs):
+        client.calls.append(kwargs)
+        if kwargs["path"].endswith("/sms"):
+            return {"smsSettingsDah": {"enabled": True, "current": {"smsCount": 1}}}
+        return {}
+
+    monkeypatch.setattr(client, "request_json", response)
+    client.send_tenant_notification(
+        dah_api.TenantNotificationRequest("tenant-id", "hello", "tenant/assoc"),
+        tab_id="tab",
+    )
+
+    assert client.calls == [
+        {
+            "method": "GET",
+            "path": "/accounting/v1/settings/tenant%2Fassoc/sms",
+            "query": {"force": "true"},
+            "tab_id": "tab",
+        },
+        {
+            "method": "POST",
+            "path": "/communication/v1/client/notification/tenant%2Fassoc/tenant/send",
+            "payload": {
+                "details": [
+                    {"type": "APP", "enabled": True},
+                    {"type": "EMAIL", "enabled": True},
+                    {"type": "SMS", "enabled": True},
+                ],
+                "tenantId": "tenant-id",
+                "text": "hello",
+                "textHtml": "<p>hello</p>",
+            },
+            "tab_id": "tab",
+        },
+    ]
+
+
+@pytest.mark.parametrize(
+    ("settings", "message"),
+    [
+        ({"enabled": False, "current": {"smsCount": 1}}, "disabled"),
+        ({"enabled": True}, "unavailable"),
+        ({"enabled": True, "current": {"smsCount": 0}}, "exhausted"),
+    ],
+)
+def test_tenant_notification_rejects_unavailable_sms(settings, message, monkeypatch):
+    client = RecordingClient()
+
+    def response(**kwargs):
+        client.calls.append(kwargs)
+        return {"smsSettingsDah": settings}
+
+    monkeypatch.setattr(client, "request_json", response)
+
+    with pytest.raises(dah_api.DahRequestError, match=message):
+        client.send_tenant_notification(
+            dah_api.TenantNotificationRequest("tenant-id", "hello", "tenant/assoc")
+        )
+
+    assert [call["path"] for call in client.calls] == [
+        "/accounting/v1/settings/tenant%2Fassoc/sms"
+    ]
 
 
 def test_request_json_success(monkeypatch):

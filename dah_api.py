@@ -226,6 +226,34 @@ def default_notification_details() -> list[dict[str, Any]]:
     ]
 
 
+def sms_quota_values(values: Any) -> dict[str, Any]:
+    if not isinstance(values, dict):
+        return {}
+    return {
+        field: values[field]
+        for field in ("smsCount", "balance")
+        if field in values
+    }
+
+
+def sms_notification_enabled(details: list[dict[str, Any]]) -> bool:
+    return any(
+        detail.get("type") == "SMS" and detail.get("enabled") is True
+        for detail in details
+        if isinstance(detail, dict)
+    )
+
+
+def validate_sms_quota(quota: dict[str, Any]) -> None:
+    if not quota["enabled"]:
+        raise DahRequestError("DAH SMS notifications are disabled.")
+    remaining = quota["remaining"].get("smsCount")
+    if not isinstance(remaining, (int, float)):
+        raise DahRequestError("DAH SMS quota is unavailable.")
+    if remaining < 1:
+        raise DahRequestError("DAH SMS quota is exhausted.")
+
+
 def text_to_html_paragraph(text: str) -> str:
     return f"<p>{'<br>'.join(html.escape(line) for line in text.splitlines())}</p>"
 
@@ -262,6 +290,12 @@ class NotificationHistoryRequest:
                 f"Unsupported notification history channel: {self.channel}. "
                 f"Use one of: {supported}."
             )
+
+
+@dataclass(slots=True)
+class SmsQuotaRequest:
+    association_id: str | None = None
+    refresh: bool = False
 
 
 @dataclass(slots=True)
@@ -567,6 +601,13 @@ class DahApiClient:
         *,
         tab_id: str | None = None,
     ) -> Any:
+        if sms_notification_enabled(request.details):
+            validate_sms_quota(
+                self.get_sms_quota(
+                    SmsQuotaRequest(association_id=request.association_id, refresh=True),
+                    tab_id=tab_id,
+                )
+            )
         association_id = urllib.parse.quote(
             request.association_id or self.get_default_association_id(),
             safe="",
@@ -600,6 +641,34 @@ class DahApiClient:
             payload=request.payload,
             tab_id=tab_id,
         )
+
+    def get_sms_quota(
+        self,
+        request: SmsQuotaRequest | None = None,
+        *,
+        tab_id: str | None = None,
+    ) -> dict[str, Any]:
+        quota_request = request or SmsQuotaRequest()
+        association_id = urllib.parse.quote(
+            quota_request.association_id or self.get_default_association_id(),
+            safe="",
+        )
+        settings = self.request_json(
+            method="GET",
+            path=f"/accounting/v1/settings/{association_id}/sms",
+            query={"force": "true"} if quota_request.refresh else None,
+            tab_id=tab_id,
+        )
+        dah_settings = (
+            settings.get("smsSettingsDah", {}) if isinstance(settings, dict) else {}
+        )
+        return {
+            "enabled": bool(dah_settings.get("enabled")),
+            "refreshed": quota_request.refresh,
+            "periodLimit": sms_quota_values(dah_settings.get("perAct")),
+            "used": sms_quota_values(dah_settings.get("used")),
+            "remaining": sms_quota_values(dah_settings.get("current")),
+        }
 
     def list_apartments(
         self,

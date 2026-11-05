@@ -189,6 +189,14 @@
       "references": ["endpoints.md", "safety-decision-table.md"]
     },
     {
+      "name": "sms-quota",
+      "mode": "read",
+      "requiresEnv": ["DAH_BEARER_TOKEN"],
+      "supportsDryRun": false,
+      "requiresApproval": false,
+      "references": ["endpoints.md"]
+    },
+    {
       "name": "notification-history-sync",
       "mode": "local-write",
       "requiresEnv": ["DAH_BEARER_TOKEN"],

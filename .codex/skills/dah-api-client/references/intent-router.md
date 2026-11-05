@@ -19,6 +19,7 @@ Use this table before choosing a command or reference file.
 | Messenger group read/write | `write-operation-protocol.md`, `endpoints.md` | `messenger-group-messages` or `messenger-send-message --dry-run` |
 | Tenant notification | `write-operation-protocol.md`, `safety-decision-table.md` | `tenant-notification-send` |
 | DAH SMS or E-mail delivery history | `endpoints.md`, `safety-decision-table.md` | `notification-history --channel sms` or `--channel email` |
+| Current DAH SMS allowance, use, or remaining resource | `endpoints.md` | `sms-quota --refresh` |
 | Synchronize DAH E-mail debt notices with the local ledger | `endpoints.md`, `workflows.md` | `notification-history-sync`, then `--write` after preview |
 | Bank expense or income matching | `workflows.md`, `endpoints.md` | `money-transaction-bank-list` |
 | Add a new endpoint | `endpoints.md`, `quality-gates.md` | update `dah_api.py`, `cli_parser.py`, `main.py`, tests |
