@@ -639,6 +639,7 @@ class DahCli:
             ledger_path=args.ledger_path,
             dashboard_path=args.dashboard_path,
             write_snapshot=args.write,
+            sms_quota_warning_threshold=args.sms_quota_warning_threshold,
         )
 
     @staticmethod

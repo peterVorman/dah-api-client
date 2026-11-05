@@ -19,7 +19,11 @@ from debtor_notifications import (
     NOTIFICATION_METHODS,
     RECIPIENT_SCOPES,
 )
-from debtor_reports import DEFAULT_DEBT_DASHBOARD_PATH, DEFAULT_DEBT_SNAPSHOT_PATH
+from debtor_reports import (
+    DEFAULT_DEBT_DASHBOARD_PATH,
+    DEFAULT_DEBT_SNAPSHOT_PATH,
+    DEFAULT_SMS_QUOTA_WARNING_THRESHOLD,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -420,6 +424,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--write",
         action="store_true",
         help="Append the current daily dashboard to the local file.",
+    )
+    dashboard_parser.add_argument(
+        "--sms-quota-warning-threshold",
+        type=int,
+        default=DEFAULT_SMS_QUOTA_WARNING_THRESHOLD,
+        help=(
+            "Warn when the refreshed DAH SMS remaining count is below this value. "
+            f"Defaults to {DEFAULT_SMS_QUOTA_WARNING_THRESHOLD}."
+        ),
     )
 
     ledger_parser = subparsers.add_parser(

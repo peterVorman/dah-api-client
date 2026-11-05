@@ -16,6 +16,7 @@ from debtor_reports import (
     json_record,
     number_value,
     numeric_delta,
+    sms_quota_summary,
     stage_summaries,
     string_values,
     transaction_date,
@@ -71,6 +72,10 @@ class DashboardClient(ReportClient):
     def get_bill_debt_analytics(self, request):
         self.debt_request = request
         return {"rows": self.rows}
+
+    def get_sms_quota(self, request):
+        self.sms_quota_request = request
+        return {"enabled": True, "remaining": {"smsCount": 12}}
 
 
 def apartment(number, entrance, floor, area, kind="APARTMENT"):
@@ -331,12 +336,14 @@ def test_debt_dashboard_writes_and_compares_days(tmp_path):
         baseline["previous"],
         report["previous"]["snapshotDate"],
         len(dashboard_path.read_text(encoding="utf-8").splitlines()),
-    ) == (None, "2026-07-01", 2)
+        client.sms_quota_request.refresh,
+    ) == (None, "2026-07-01", 2, True)
     assert (
         report["current"]["summary"],
         report["current"]["byKind"],
         report["current"]["communications"],
         report["current"]["stages"],
+        report["current"]["smsQuota"],
     ) == (
         {"count": 3, "debt": 6000.0, "area": 400.0, "debtPerArea": 15.0},
         [
@@ -381,6 +388,13 @@ def test_debt_dashboard_writes_and_compares_days(tmp_path):
             {"stage": "contacted", "count": 1, "debt": 2000.0},
             {"stage": "no_answer", "count": 1, "debt": 3000.0},
         ],
+        {
+            "enabled": True,
+            "remaining": 12,
+            "warningThreshold": 20,
+            "status": "below_threshold",
+            "warning": True,
+        },
     )
     assert (
         report["delta"]["summary"]["debtDelta"],
@@ -394,6 +408,44 @@ def test_debt_dashboard_writes_and_compares_days(tmp_path):
             "notified": 0.0,
         },
     )
+
+
+def test_sms_quota_summary():
+    assert [
+        sms_quota_summary({"enabled": True, "remaining": {"smsCount": 20}}, 20),
+        sms_quota_summary({"enabled": True, "remaining": {"smsCount": 19}}, 20),
+        sms_quota_summary({"enabled": False, "remaining": {"smsCount": 20}}, 20),
+        sms_quota_summary({"enabled": True, "remaining": {}}, 20),
+    ] == [
+        {
+            "enabled": True,
+            "remaining": 20,
+            "warningThreshold": 20,
+            "status": "ok",
+            "warning": False,
+        },
+        {
+            "enabled": True,
+            "remaining": 19,
+            "warningThreshold": 20,
+            "status": "below_threshold",
+            "warning": True,
+        },
+        {
+            "enabled": False,
+            "remaining": 20,
+            "warningThreshold": 20,
+            "status": "disabled",
+            "warning": True,
+        },
+        {
+            "enabled": True,
+            "remaining": None,
+            "warningThreshold": 20,
+            "status": "unavailable",
+            "warning": True,
+        },
+    ]
 
 
 def test_debt_dashboard_marks_ambiguous_legacy_records_unknown():

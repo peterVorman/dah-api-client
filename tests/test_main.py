@@ -16,6 +16,7 @@ class FakeClient:
     debt_response = None
     apartment_response = None
     money_response = None
+    sms_quota_response = None
     notification_history_pages = [{"content": [], "last": True}]
     groups_pages = [{"content": [{"id": "chat-id", "name": "2 підʼїзд"}], "last": True}]
 
@@ -101,6 +102,9 @@ class FakeClient:
         return type(self).notification_history_pages[0]
 
     def get_sms_quota(self, request):
+        if type(self).sms_quota_response is not None:
+            self.calls.append(("sms-quota", request))
+            return type(self).sms_quota_response
         return self.record("sms-quota", request)
 
     def list_apartments(self, request):
@@ -161,6 +165,7 @@ def cli_env(monkeypatch, tmp_path):
     FakeClient.debt_response = None
     FakeClient.apartment_response = None
     FakeClient.money_response = None
+    FakeClient.sms_quota_response = None
     FakeClient.groups_pages = [
         {"content": [{"id": "chat-id", "name": "2 підʼїзд"}], "last": True}
     ]
@@ -1360,10 +1365,15 @@ def test_cli_debt_dashboard(cli_env, capsys, tmp_path):
         "content": [apartment("55", "1", 2, 50)],
         "last": True,
     }
+    FakeClient.sms_quota_response = {
+        "enabled": True,
+        "remaining": {"smsCount": 8},
+    }
 
     status, report, _, client = run_cli(
         args(
             "debt-dashboard --date 2026-07-01T12:00 --write "
+            "--sms-quota-warning-threshold 10 "
             f"--ledger-path {ledger_path} --dashboard-path {dashboard_path}"
         ),
         capsys,
@@ -1374,14 +1384,24 @@ def test_cli_debt_dashboard(cli_env, capsys, tmp_path):
         report["current"]["debtFilterAccruals"],
         report["current"]["summary"]["debt"],
         report["current"]["stages"],
+        report["current"]["smsQuota"],
         [name for name, _ in client.calls],
+        client.calls[-1][1].refresh,
         len(dashboard_path.read_text(encoding="utf-8").splitlines()),
     ) == (
         0,
         2,
         4203.9,
         [{"stage": "notified", "count": 1, "debt": 4203.9}],
-        ["apartment-list", "bill-debt-analytics"],
+        {
+            "enabled": True,
+            "remaining": 8,
+            "warningThreshold": 10,
+            "status": "below_threshold",
+            "warning": True,
+        },
+        ["apartment-list", "bill-debt-analytics", "sms-quota"],
+        True,
         1,
     )
 

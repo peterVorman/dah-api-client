@@ -24,6 +24,7 @@ The command reads:
 - DAH debt analytics for the selected threshold and report date;
 - DAH apartment metadata to classify a debtor and calculate the area
   denominator;
+- refreshed DAH SMS quota to flag a low communications budget;
 - `.dah-notifications.jsonl` for local communication history.
 
 It does not send a DAH message or change debt data. `--write` only appends an
@@ -43,6 +44,7 @@ day remain useful as an audit trail, but do not create a same-day delta.
 | `--ledger-path PATH` | Read communication history from an alternative local ledger. |
 | `--dashboard-path PATH` | Read/write an alternative aggregate snapshot history. |
 | `--write` | Append the current local aggregate snapshot. |
+| `--sms-quota-warning-threshold N` | Warn when remaining DAH SMS units are below `N`; default `20`. |
 
 Do not compare dashboards created with different maturity thresholds or
 `minDebt` values. The client enforces this compatibility rule.
@@ -63,6 +65,8 @@ The command returns `current`, `previous`, and `delta`.
 - `communications.today`: ledger entries whose local `date` matches the
   snapshot day.
 - `stages`: current debtors grouped by their latest relevant ledger status.
+- `smsQuota`: refreshed SMS availability, configured warning threshold, and an
+  aggregate status: `ok`, `below_threshold`, `disabled`, or `unavailable`.
 
 Each communication row contains `events`, `sent`, `contacted`, `noAnswer`, and
 `recipients`. These are ledger events and intended recipient counts, not a
@@ -106,6 +110,8 @@ dashboard from the same calendar day is never used as the comparison baseline.
    taking action.
 5. Distinguish today's communication activity from historical totals and from
    actual payments. Payment analysis requires debt snapshots or debtor audits.
+6. Treat `smsQuota.warning=true` as a capacity warning, not a delivery result;
+   the DAH provider remains the authority for actual SMS consumption.
 
 ## Safe Response Rules
 

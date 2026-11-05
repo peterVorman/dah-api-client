@@ -47,8 +47,9 @@ python3 main.py debt-dashboard --write --debt-filter-accruals 2
    for one intentional daily baseline; it appends a local aggregate record and
    never writes to DAH.
 3. Report total debt, apartment/premise totals, entrances with area-adjusted
-   load, today's and historical ledger activity by channel, and current debtor
-   stages. Do not turn the dashboard into a list of people or contact details.
+   load, today's and historical ledger activity by channel, current debtor
+   stages, and the SMS quota warning state. Do not turn the dashboard into a
+   list of people or contact details.
 4. Say explicitly when `previous` and `delta` are absent: it is a new baseline,
    not zero day-over-day movement.
 5. For field definitions, compatibility rules, and interpretation, read

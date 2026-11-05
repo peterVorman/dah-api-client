@@ -49,6 +49,7 @@ python main.py bill-reconciliation --apartment-number 55 --from-date YYYY-MM-DDT
 python main.py bill-reconciliation-send --apartment-number 55 --from-date YYYY-MM-DDT00:00:00 --to-date YYYY-MM-DDT23:59:59
 python main.py bill-reconciliation-send --apartment-number 55 --from-date YYYY-MM-DDT00:00:00 --to-date YYYY-MM-DDT23:59:59 --send --confirm 55
 python main.py debt-dashboard --write
+python main.py debt-dashboard --write --sms-quota-warning-threshold 20
 python main.py notification-history --channel sms --page 0 --size 50
 python main.py sms-quota
 python main.py sms-quota --refresh

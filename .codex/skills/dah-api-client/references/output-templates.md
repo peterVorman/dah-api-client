@@ -40,6 +40,7 @@ Use these shapes for concise, stable answers.
 
 Опрацювання: <stage counts and amounts>.
 Канали за сьогодні: <channel counts or no activity>.
+SMS-квота: <remaining> / попередження при <threshold>; <ok/warning>.
 Динаміка: <signed amount> грн / <new baseline; no prior-day comparison>.
 ```
 

@@ -61,6 +61,7 @@ python3 main.py debtor-audit --apartment-number 55 --from-date YYYY-MM-DDT00:00:
 python3 main.py debt-snapshot --write --kind all
 python3 main.py debt-dashboard
 python3 main.py debt-dashboard --write --debt-filter-accruals 2
+python3 main.py debt-dashboard --write --sms-quota-warning-threshold 20
 python3 main.py ledger-add-contact --apartment-number 55 --status contacted --note 'Contact established'
 python3 main.py feedback-order-list
 python3 main.py feedback-order-status '<feedback order id>' --status DONE --dry-run

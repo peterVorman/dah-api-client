@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from dah_api import DahApiClient, MoneyTransactionBankListRequest
+from dah_api import DahApiClient, MoneyTransactionBankListRequest, SmsQuotaRequest
 from debtor_data import (
     apartment_for_debtor,
     apartment_kind,
@@ -26,6 +26,7 @@ from debtor_notifications import (
 
 DEFAULT_DEBT_SNAPSHOT_PATH = ".dah-debt-snapshots.jsonl"
 DEFAULT_DEBT_DASHBOARD_PATH = ".dah-debt-dashboard.jsonl"
+DEFAULT_SMS_QUOTA_WARNING_THRESHOLD = 20
 DASHBOARD_RECORD_TYPE = "dashboard"
 NO_ENTRANCE = "Без підʼїзду"
 NO_FLOOR = "Без поверху"
@@ -128,6 +129,7 @@ class DebtDashboardRequest:
     ledger_path: str = DEFAULT_NOTIFICATION_LEDGER_PATH
     dashboard_path: str = DEFAULT_DEBT_DASHBOARD_PATH
     write_snapshot: bool = False
+    sms_quota_warning_threshold: int = DEFAULT_SMS_QUOTA_WARNING_THRESHOLD
 
 
 class DebtorReportService:
@@ -252,6 +254,15 @@ class DebtorReportService:
             entries,
             area_entries,
             NotificationLedger(request.ledger_path).records(),
+            sms_quota_summary(
+                self.client.get_sms_quota(
+                    SmsQuotaRequest(
+                        association_id=request.association_id,
+                        refresh=True,
+                    )
+                ),
+                request.sms_quota_warning_threshold,
+            ),
         )
         store = DebtSnapshotStore(request.dashboard_path)
         previous = store.latest_before_day(current)
@@ -526,6 +537,7 @@ def dashboard_payload(
     entries: list[dict[str, Any]],
     area_entries: list[dict[str, Any]],
     records: list[dict[str, Any]],
+    sms_quota: dict[str, Any],
 ) -> dict[str, Any]:
     created_at = datetime.now().isoformat(timespec="seconds")
     snapshot_date = dashboard_snapshot_date(request.date, created_at)
@@ -546,6 +558,30 @@ def dashboard_payload(
         ),
         "communications": dashboard_communications(records, snapshot_date),
         "stages": stage_summaries(entries, records),
+        "smsQuota": sms_quota,
+    }
+
+
+def sms_quota_summary(
+    quota: dict[str, Any],
+    warning_threshold: int,
+) -> dict[str, Any]:
+    remaining = quota["remaining"].get("smsCount")
+    enabled = quota["enabled"]
+    if not enabled:
+        status = "disabled"
+    elif remaining is None:
+        status = "unavailable"
+    elif remaining < warning_threshold:
+        status = "below_threshold"
+    else:
+        status = "ok"
+    return {
+        "enabled": enabled,
+        "remaining": remaining,
+        "warningThreshold": warning_threshold,
+        "status": status,
+        "warning": status != "ok",
     }
 
 
